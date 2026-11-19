@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="EDITH">
+<meta name="theme-color" content="#0f1115">
+<title>EDITH Voce</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='50' fill='%233b6cf6'/%3E%3Ctext x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='700'%3EE%3C/text%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f6f7f9; --card: #ffffff; --ink: #14161a; --muted: #6b7280; --line: #e5e7eb;
+  --accent: #3b6cf6; --accent-ink: #ffffff; --me: #3b6cf6; --me-ink: #fff; --her: #eef1f6;
+  --rec: #e5484d; --ok: #2f9e66;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --card: #171a21; --ink: #eceef2; --muted: #9aa1ad; --line: #262a33;
+    --accent: #5b85ff; --me: #3b6cf6; --her: #1f232c; --rec: #ff6369; --ok: #3fbf80;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1115; --card: #171a21; --ink: #eceef2; --muted: #9aa1ad; --line: #262a33;
+  --accent: #5b85ff; --me: #3b6cf6; --her: #1f232c; --rec: #ff6369; --ok: #3fbf80;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 16px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  display: flex; flex-direction: column;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+}
+header {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  border-bottom: 1px solid var(--line); background: var(--card);
+}
+header h1 { font-size: 18px; margin: 0; letter-spacing: .08em; }
+header .stato { flex: 1; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icona { border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 10px; min-width: 40px; height: 40px; font-size: 18px; cursor: pointer; }
+.icona[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+main { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 86%; padding: 10px 14px; border-radius: 16px; white-space: pre-wrap; word-wrap: break-word; }
+.io { align-self: flex-end; background: var(--me); color: var(--me-ink); border-bottom-right-radius: 4px; }
+.lei { align-self: flex-start; background: var(--her); border-bottom-left-radius: 4px; }
+.provvisorio { opacity: .6; font-style: italic; }
+.azioni { display: flex; gap: 8px; margin-top: 8px; }
+.azioni button { flex: 1; border: 0; border-radius: 10px; padding: 10px; font-size: 16px; font-weight: 600; cursor: pointer; }
+.si { background: var(--ok); color: #fff; } .no { background: var(--line); color: var(--ink); }
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 0 16px 10px; scrollbar-width: none; }
+.chips button { flex: none; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 999px; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+footer { background: var(--card); border-top: 1px solid var(--line); padding: 14px 16px 18px; }
+.mic-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+#mic {
+  width: 112px; height: 112px; border-radius: 50%; border: 0; cursor: pointer;
+  background: var(--accent); color: #fff; font-size: 46px;
+  box-shadow: 0 6px 24px rgba(59,108,246,.35); transition: transform .15s, background .15s;
+}
+#mic:active { transform: scale(.96); }
+#mic.ascolto { background: var(--rec); box-shadow: 0 0 0 0 rgba(229,72,77,.6); animation: pulsa 1.4s infinite; }
+#mic.pensa { background: var(--muted); }
+@keyframes pulsa { 0% { box-shadow: 0 0 0 0 rgba(229,72,77,.55); } 70% { box-shadow: 0 0 0 22px rgba(229,72,77,0); } 100% { box-shadow: 0 0 0 0 rgba(229,72,77,0); } }
+#suggerimento { font-size: 14px; color: var(--muted); text-align: center; min-height: 20px; }
+.riga { display: flex; gap: 8px; margin-top: 12px; }
+.riga input { flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--bg); color: var(--ink); border-radius: 12px; padding: 11px 12px; font-size: 16px; }
+.riga button { border: 0; background: var(--accent); color: #fff; border-radius: 12px; padding: 0 16px; font-size: 16px; font-weight: 600; cursor: pointer; }
+.auto { display: flex; align-items: center; justify-content: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.auto input { width: 20px; height: 20px; accent-color: var(--accent); }
+#setup { padding: 20px 16px; display: none; flex-direction: column; gap: 12px; }
+#setup label { font-size: 14px; color: var(--muted); }
+#setup input { width: 100%; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 12px; padding: 12px; font-size: 15px; }
+#setup button { border: 0; background: var(--accent); color: #fff; border-radius: 12px; padding: 14px; font-size: 16px; font-weight: 600; cursor: pointer; }
+#setup p { margin: 0; color: var(--muted); font-size: 14px; }
+.errore { color: var(--rec); }
+</style>
+</head>
+<body>
+<header>
+  <h1>EDITH</h1>
+  <div class="stato" id="stato">…</div>
+  <button class="icona" id="voce" aria-pressed="true" title="Leggi le risposte ad alta voce">🔈</button>
+  <button class="icona" id="impostazioni" title="Impostazioni">⚙︎</button>
+</header>
+
+<section id="setup">
+  <p>Collega EDITH Voce al tuo script. Ti bastano due cose che trovi nella guida: l'URL del deployment (finisce con <b>/exec</b>) e il token.</p>
+  <label for="u">URL del deployment</label>
+  <input id="u" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+  <label for="k">Token</label>
+  <input id="k" type="password" placeholder="il token creato da creaTokenVoce" autocomplete="off">
+  <button id="salva">Collega</button>
+  <p id="setupErr" class="errore"></p>
+</section>
+
+<main id="chat" aria-live="polite"></main>
+
+<div class="chips" id="chips">
+  <button>Cosa devo pagare?</button>
+  <button>Riepilogo</button>
+  <button>Quando scade l'assicurazione?</button>
+  <button>La luce è aumentata?</button>
+  <button>Controlla la posta</button>
+  <button>Quanto spazio ho?</button>
+</div>
+
+<footer id="piede">
+  <div class="mic-wrap">
+    <button id="mic" aria-label="Premi e parla">🎙</button>
+    <div id="suggerimento">Premi e parla</div>
+    <label class="auto"><input type="checkbox" id="auto"> Modalità auto: dopo la risposta riascolta, finché non dici "basta"</label>
+  </div>
+  <form class="riga" id="form">
+    <input id="testo" placeholder="Oppure scrivi qui…" autocomplete="off" enterkeyhint="send">
+    <button>Invia</button>
+  </form>
+</footer>
+
+<script>
+(function () {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const chat = $('chat'), mic = $('mic'), sugg = $('suggerimento');
+  const S = { url: '', k: '', storia: [], voce: true, auto: false, attesa: null, ascolto: false, occupato: false, silenzi: 0 };
+
+  // ------------------------------------------------ archivio locale (può mancare)
+  const mem = {
+    get(n) { try { return localStorage.getItem('edith_' + n); } catch (e) { return null; } },
+    set(n, v) { try { localStorage.setItem('edith_' + n, v); } catch (e) { } },
+    del(n) { try { localStorage.removeItem('edith_' + n); } catch (e) { } },
+  };
+
+  // ------------------------------------------------ configurazione
+  function leggiHash() {
+    if (!location.hash || location.hash.length < 3) return;
+    const h = new URLSearchParams(location.hash.slice(1));
+    if (h.get('u')) mem.set('url', h.get('u'));
+    if (h.get('k')) mem.set('k', h.get('k'));
+    // toglie il token dalla barra degli indirizzi
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { }
+  }
+  function carica() {
+    S.url = mem.get('url') || ''; S.k = mem.get('k') || '';
+    S.voce = mem.get('voce') !== '0'; S.auto = mem.get('auto') === '1';
+    $('voce').setAttribute('aria-pressed', S.voce); $('auto').checked = S.auto;
+  }
+  function mostraSetup(si, err) {
+    $('setup').style.display = si ? 'flex' : 'none';
+    ['chat', 'chips', 'piede'].forEach(id => { $(id).style.display = si ? 'none' : ''; });
+    $('u').value = S.url; $('k').value = S.k; $('setupErr').textContent = err || '';
+  }
+
+  // ------------------------------------------------ chiamate allo script
+  async function api(f, ...a) {
+    // corpo text/plain: niente preflight CORS, Apps Script lo accetta
+    const res = await fetch(S.url, { method: 'POST', body: JSON.stringify({ k: S.k, f: f, a: a }) });
+    const j = await res.json();
+    if (!j.ok) throw new Error(j.errore || 'Errore');
+    return j.r;
+  }
+
+  // ------------------------------------------------ chat
+  function bolla(testo, chi, extra) {
+    const d = document.createElement('div');
+    d.className = 'msg ' + chi + (extra ? ' ' + extra : '');
+    d.textContent = testo;
+    chat.appendChild(d); chat.scrollTop = chat.scrollHeight;
+    return d;
+  }
+  function eur(n) { return '€ ' + Number(n || 0).toFixed(2).replace('.', ','); }
+
+  async function aggiornaStato() {
+    try {
+      const d = await api('dati');
+      $('stato').textContent = d.kpi.aperte
+        ? d.kpi.aperte + (d.kpi.aperte === 1 ? ' pagamento' : ' pagamenti') + ' in sospeso · ' + eur(d.kpi.apertiTot)
+        : 'Niente da pagare';
+      return true;
+    } catch (e) {
+      $('stato').textContent = '';
+      if (/token/i.test(e.message)) { mostraSetup(true, 'Il token non è valido. Ricontrolla.'); return false; }
+      bolla('Non riesco a raggiungere lo script (' + e.message + '). Controlla la connessione o l\'URL nelle impostazioni ⚙︎.', 'lei');
+      return false;
+    }
+  }
+
+  const SI = /^(si|sì|certo|conferma|confermo|vai|ok|okay|esatto|procedi|fallo)(?=\s|$)/i;
+  const NO = /^(no|annulla|lascia stare|non ancora|aspetta)(?=\s|$)/i;
+
+  async function chiedi(q) {
+    q = String(q || '').trim();
+    if (!q || S.occupato) return;
+    bolla(q, 'io');
+    // conferma a voce di un'azione in sospeso
+    if (S.attesa) {
+      const az = S.attesa, pulita = q.toLowerCase().replace(/[^\p{L}\s]/gu, '').trim();
+      if (SI.test(pulita)) return conferma(az, true);
+      if (NO.test(pulita)) return conferma(az, false);
+      chiudiAzioni();
+    }
+    S.occupato = true; statoMic('pensa');
+    try {
+      const r = await api('chiedi', q, S.storia.slice(-8));
+      S.storia.push({ ruolo: 'io', testo: q }, { ruolo: 'edith', testo: r.testo });
+      const b = bolla(r.testo, 'lei');
+      if (r.azione && r.azione.tipo === 'pagata') mostraAzione(b, r.azione);
+      if (r.aggiorna) aggiornaStato();
+      S.occupato = false; statoMic('');
+      parla(r.testo, () => { if (S.auto && !r.fine) ascolta(); });
+      if (r.fine) setAuto(false);
+    } catch (e) {
+      S.occupato = false; statoMic('');
+      const t = 'Ho avuto un problema (' + e.message + '). Riprova tra poco.';
+      bolla(t, 'lei'); parla(t);
+    }
+  }
+
+  function mostraAzione(bollaEl, az) {
+    chiudiAzioni();
+    S.attesa = az;
+    const w = document.createElement('div'); w.className = 'azioni';
+    const si = document.createElement('button'); si.className = 'si'; si.textContent = 'Sì';
+    const no = document.createElement('button'); no.className = 'no'; no.textContent = 'No';
+    si.onclick = () => { bolla('Sì', 'io'); conferma(az, true); };
+    no.onclick = () => { bolla('No', 'io'); conferma(az, false); };
+    w.append(si, no); bollaEl.appendChild(w);
+  }
+  function chiudiAzioni() { S.attesa = null; document.querySelectorAll('.azioni').forEach(n => n.remove()); }
+
+  async function conferma(az, ok) {
+    chiudiAzioni();
+    let t;
+    if (!ok) t = 'Va bene, la lascio com\'è.';
+    else {
+      S.occupato = true; statoMic('pensa');
+      try { await api('pagata', az.foglio, az.riga); t = 'Fatto: ' + az.nome + ' segnata come pagata. Ho spuntato anche il promemoria.'; aggiornaStato(); }
+      catch (e) { t = 'Non sono riuscita a segnarla (' + e.message + ').'; }
+      S.occupato = false; statoMic('');
+    }
+    bolla(t, 'lei');
+    S.storia.push({ ruolo: 'edith', testo: t });
+    parla(t, () => { if (S.auto) ascolta(); });
+  }
+
+  // ------------------------------------------------ voce in uscita
+  let voceIt = null;
+  function scegliVoce() {
+    if (!('speechSynthesis' in window)) return;
+    const v = speechSynthesis.getVoices().filter(x => /^it/i.test(x.lang));
+    voceIt = v.find(x => /female|alice|elsa|federica|google/i.test(x.name)) || v[0] || null;
+  }
+  if ('speechSynthesis' in window) { scegliVoce(); speechSynthesis.onvoiceschanged = scegliVoce; }
+
+  function parla(testo, poi) {
+    if (!S.voce || !('speechSynthesis' in window)) { if (poi) poi(); return; }
+    try {
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(testo.replace(/€\s?/g, '').replace(/(\d+),(\d\d)\b/g, '$1 euro e $2'));
+      u.lang = 'it-IT'; if (voceIt) u.voice = voceIt; u.rate = 1.05;
+      let fatto = false; const fine = () => { if (!fatto) { fatto = true; if (poi) setTimeout(poi, 250); } };
+      u.onend = fine; u.onerror = fine;
+      speechSynthesis.speak(u);
+      setTimeout(() => { if (!speechSynthesis.speaking) fine(); }, 15000);
+    } catch (e) { if (poi) poi(); }
+  }
+
+  // ------------------------------------------------ voce in entrata
+  const Rec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let rec = null, provv = null, finale = '';
+
+  function statoMic(s) {
+    mic.classList.remove('ascolto', 'pensa'); if (s) mic.classList.add(s);
+    sugg.textContent = s === 'ascolto' ? 'Ti ascolto… tocca per fermare' : s === 'pensa' ? 'Ci penso…' : (S.auto ? 'Modalità auto attiva' : 'Premi e parla');
+  }
+
+  function ascolta() {
+    if (!Rec) { sugg.textContent = 'Questo browser non ha il riconoscimento vocale: usa Chrome (Android) o Safari (iPhone).'; return; }
+    if (S.ascolto || S.occupato) return;
+    if ('speechSynthesis' in window) speechSynthesis.cancel();
+    rec = new Rec();
+    rec.lang = 'it-IT'; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+    finale = ''; provv = null;
+    rec.onstart = () => { S.ascolto = true; statoMic('ascolto'); };
+    rec.onresult = ev => {
+      let parziale = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) finale += ev.results[i][0].transcript; else parziale += ev.results[i][0].transcript;
+      }
+      const vis = (finale + ' ' + parziale).trim();
+      if (vis) { if (!provv) provv = bolla(vis, 'io', 'provvisorio'); else provv.textContent = vis; chat.scrollTop = chat.scrollHeight; }
+    };
+    rec.onerror = ev => {
+      if (ev.error === 'not-allowed' || ev.error === 'service-not-allowed') {
+        setAuto(false);
+        sugg.textContent = 'Il microfono è bloccato: consentilo nelle impostazioni del browser per questo sito.';
+      } else if (ev.error === 'no-speech') { S.silenzi++; }
+    };
+    rec.onend = () => {
+      S.ascolto = false;
+      if (provv) { provv.remove(); provv = null; }
+      const q = finale.trim();
+      statoMic('');
+      if (q) { S.silenzi = 0; chiedi(q); }
+      else if (S.auto && S.silenzi < 2) setTimeout(ascolta, 300);
+      else if (S.auto) { setAuto(false); sugg.textContent = 'Non ti sento più: modalità auto in pausa.'; }
+    };
+    try { rec.start(); } catch (e) { S.ascolto = false; statoMic(''); }
+  }
+  function fermaAscolto() { if (rec && S.ascolto) { try { rec.stop(); } catch (e) { } } }
+
+  function setAuto(v) { S.auto = v; $('auto').checked = v; mem.set('auto', v ? '1' : '0'); if (!S.ascolto && !S.occupato) statoMic(''); }
+
+  // ------------------------------------------------ eventi
+  mic.addEventListener('click', () => {
+    if (S.ascolto) { S.silenzi = 9; fermaAscolto(); return; }
+    S.silenzi = 0; ascolta();
+  });
+  $('auto').addEventListener('change', e => { setAuto(e.target.checked); if (S.auto && !S.ascolto && !S.occupato) ascolta(); });
+  $('voce').addEventListener('click', () => {
+    S.voce = !S.voce; mem.set('voce', S.voce ? '1' : '0'); $('voce').setAttribute('aria-pressed', S.voce);
+    if (!S.voce && 'speechSynthesis' in window) speechSynthesis.cancel();
+  });
+  $('form').addEventListener('submit', e => { e.preventDefault(); const t = $('testo').value; $('testo').value = ''; chiedi(t); });
+  $('chips').addEventListener('click', e => { if (e.target.tagName === 'BUTTON') chiedi(e.target.textContent); });
+  $('impostazioni').addEventListener('click', () => mostraSetup($('setup').style.display !== 'flex'));
+  $('salva').addEventListener('click', async () => {
+    const u = $('u').value.trim(), k = $('k').value.trim();
+    if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u)) { $('setupErr').textContent = 'L\'URL deve iniziare con https://script.google.com/macros/s/ e finire con /exec.'; return; }
+    if (k.length < 20) { $('setupErr').textContent = 'Il token sembra troppo corto.'; return; }
+    mem.set('url', u); mem.set('k', k); S.url = u; S.k = k;
+    mostraSetup(false);
+    if (await aggiornaStato()) benvenuto();
+  });
+
+  function benvenuto() {
+    if (chat.childElementCount) return;
+    bolla('Ciao Theodore. Premi il microfono e parlami, oppure scrivi qui sotto.', 'lei');
+  }
+
+  // ------------------------------------------------ avvio
+  leggiHash(); carica();
+  if (!S.url || !S.k) mostraSetup(true);
+  else { mostraSetup(false); aggiornaStato().then(ok => { if (ok) benvenuto(); }); }
+  statoMic('');
+})();
+</script>
+</body>
+</html>
