@@ -174,7 +174,9 @@ a{color:var(--accent)}
   <p class="muted" style="margin:0;font-size:13px">Le voci migliori sono "Google" o "Premium". Se senti solo voci robotiche, scarica una voce italiana dalle impostazioni del telefono (vedi la guida).</p>
   <h3>IA sul telefono <span class="muted" style="font-weight:400">· sperimentale</span></h3>
   <label class="sw">Due chiacchiere con l'IA locale<input type="checkbox" id="cfgIA" onchange="cambiaIA(this.checked)"></label>
-  <p class="muted" style="margin:0;font-size:13px">Gratis e privata: un piccolo modello (circa 700 MB, scaricalo col Wi-Fi) gira direttamente sul telefono e i tuoi dati non escono da qui. Serve Chrome aggiornato. Fa solo due chiacchiere: conti, scadenze e posta restano alle risposte precise di sempre.</p>
+  <p class="muted" style="margin:0;font-size:13px">Facoltativa: le chiacchiere di base funzionano anche senza. Gratis e privata: un piccolo modello (scaricalo col Wi-Fi) gira direttamente sul telefono e i tuoi dati non escono da qui. Serve Chrome aggiornato. Fa solo due chiacchiere: conti, scadenze e posta restano alle risposte precise di sempre.</p>
+  <label for="cfgIAq">Modello</label>
+  <select id="cfgIAq" onchange="cambiaQualita(this.value)"><option value="veloce">Veloce · Gemma 3 1B, circa 700 MB</option><option value="brava">Più brava · Gemma 2 2B, circa 1,5 GB, più lenta</option></select>
   <div id="iaStato" class="muted" style="font-size:13px"></div>
   <div class="actions"><button class="ghost" style="flex:1" onclick="sbloccaVoce();parla('Ciao Teo, sono Edith. Questa è la mia voce.')">Prova la voce</button>
   <button style="flex:1" id="cfgChiudi" onclick="mostraSetup(false)">Chiudi</button></div>
@@ -299,7 +301,7 @@ function mostraSetup(si, err){
   $('cfgU').value = mem('url') || ''; $('cfgK').value = mem('k') || ''; $('cfgErr').textContent = err || '';
   $('cfgConn').style.display = GAS ? 'none' : 'flex';
   $('cfgChiudi').style.display = GAS || (mem('url') && mem('k')) ? '' : 'none';
-  if (si) { try { $('diag').textContent = JSON.parse(mem('diag') || '[]').join('\n') || 'nessuna chiamata registrata'; } catch(e) {} riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; $('cfgIA').checked = mem('ia2') === '1'; if (!IA.motore && !IA.caricamento && mem('ia2') !== '1') iaStato(navigator.gpu ? '' : 'Su questo browser non è disponibile (manca WebGPU).'); }
+  if (si) { try { $('diag').textContent = JSON.parse(mem('diag') || '[]').join('\n') || 'nessuna chiamata registrata'; } catch(e) {} riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; $('cfgIA').checked = mem('ia2') !== '0'; $('cfgIAq').value = mem('ia_qualita') || 'veloce'; if (!navigator.gpu) iaStato('Su questo browser non è disponibile (manca WebGPU).'); else if (!IA.motore && !IA.caricamento) iaStato(mem('ia2') === '0' ? 'Spenta.' : 'Accesa: si sveglia da sola alla prima chiacchiera che le regole non conoscono.'); }
 }
 async function salvaSetup(){
   const u = $('cfgU').value.trim(), k = $('cfgK').value.trim();
@@ -513,7 +515,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov · v11';
+const VERSIONE = '20 nov · v12';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -608,6 +610,12 @@ async function chiedi(q, aVoce){
     if (NO.test(t)) return az.no();
     az.chiudi();
   }
+  // conversazione: risponde subito dal telefono, senza rete (i conti invece vanno sempre allo script)
+  if (!CONTI.test(q) || CH.stato.gioco) {
+    const ult = S.storia.filter(x => x.ruolo === 'edith').map(x => x.testo).pop();
+    const loc = CH.rispondi(q, { ultima: ult });
+    if (loc) { CH.capita(); S.storia.push({ ruolo: 'io', testo: q }); if (loc.timer) avviaTimer(loc.timer); return rispondi(loc.testo, !!loc.fine); }
+  }
   V.pensando = true; fermaAscolto(); aggiornaStato();
   let r;
   try { r = await call('apiChiedi', q, S.storia.slice(-8)); }
@@ -615,7 +623,7 @@ async function chiedi(q, aVoce){
   V.pensando = false;
   // a voce, una frase corta che non capisco è quasi sempre rumore (radio, altre persone): la ignoro
   if (aVoce && r.capito === false && norm(q).split(' ').length < 4) { io.classList.add('piano'); setTimeout(() => io.remove(), 2500); return riprendi(); }
-  const chiacchiera = r.capito === false && !GAS && mem('ia2') === '1' && !CONTI.test(q) && (!aVoce || norm(q).split(' ').length >= 3);
+  const chiacchiera = r.capito === false && !GAS && !!navigator.gpu && mem('ia2') !== '0' && !CONTI.test(q) && (!aVoce || norm(q).split(' ').length >= 3);
   if (chiacchiera && !IA.motore) caricaIA().catch(() => {});   // la sveglio solo quando serve; intanto rispondono le regole
   if (chiacchiera && IA.motore) {
     V.pensando = true; aggiornaStato();
@@ -626,6 +634,9 @@ async function chiedi(q, aVoce){
     b.remove();
     if (t) { S.storia.push({ ruolo: 'io', testo: q }); return rispondi(t, false, '', 'ia'); }
   }
+  // fuori portata: risposta gentile e sempre diversa (tengo i "Intendevi…?" dello script, che sono utili)
+  if (r.capito === false && !/intendevi/i.test(r.testo)) r = Object.assign({}, r, { testo: CH.fuoriPortata(q).testo });
+  else if (r.capito !== false) CH.capita();
   S.storia.push({ ruolo: 'io', testo: q });
   const bb = rispondi(r.testo, !!r.fine, r.seguito);
   if (r.azione && r.azione.tipo === 'pagata') chiediConferma(bb, r.azione);
@@ -718,6 +729,243 @@ function parla(testo, poi){
   } catch(e) { V.parlando = false; if (poi) poi(); }
 }
 
+// <chiacchiere>
+// Skill di conversazione che girano sul telefono: rispondono subito, anche senza rete.
+// I conti restano allo script: qui niente bollette, spese o scadenze.
+const CH = (() => {
+  const n = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9%,.\s+*\/x-]/g, ' ').replace(/\s+/g, ' ').trim();
+  const caso = a => a[Math.floor(Math.random() * a.length)];
+  const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+  const GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+  const NUM = { zero: 0, uno: 1, una: 1, un: 1, due: 2, tre: 3, quattro: 4, cinque: 5, sei: 6, sette: 7, otto: 8, nove: 9, dieci: 10, undici: 11, dodici: 12, quindici: 15, venti: 20, trenta: 30, quaranta: 40, cinquanta: 50, sessanta: 60, cento: 100, mille: 1000, mezzo: 0.5, mezza: 0.5 };
+  const num = s => { s = String(s).replace(/\.(?=\d{3}\b)/g, '').replace(',', '.'); return s in NUM ? NUM[s] : parseFloat(s); };
+  const fmt = x => { const r = Math.round(x * 100) / 100; return String(r).replace('.', ','); };
+  const giorno = d => GIORNI[d.getDay()] + ' ' + d.getDate() + ' ' + MESI[d.getMonth()] + (d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() : '');
+  const tra = (a, b) => Math.round((new Date(b.getFullYear(), b.getMonth(), b.getDate()) - new Date(a.getFullYear(), a.getMonth(), a.getDate())) / 864e5);
+  const FESTE = { natale: [11, 25], 'vigilia di natale': [11, 24], capodanno: [0, 1], 'san silvestro': [11, 31], ferragosto: [7, 15], epifania: [0, 6], befana: [0, 6], 'san valentino': [1, 14], halloween: [9, 31], 'festa della donna': [2, 8], 'festa della repubblica': [5, 2], 'liberazione': [3, 25], 'primo maggio': [4, 1], 'festa dei lavoratori': [4, 1], 'tutti i santi': [10, 1], 'immacolata': [11, 8], 'santo stefano': [11, 26] };
+  const BARZELLETTE = [
+    'Sai qual è la bolletta più leggera? Quella già pagata.',
+    'Cosa fa un\'ape in palestra? Zum-ba.',
+    'Qual è il colmo per un elettricista? Non fare scintille con la fidanzata.',
+    'Perché il libro di matematica è triste? Perché ha troppi problemi.',
+    'Cosa dice un muro a un altro muro? Ci vediamo all\'angolo.',
+    'Qual è il colmo per un giardiniere? Avere un pollice verde e lasciarci le penne.',
+    'Che cosa fa un gatto in banca? Chiede un prestito... miao-rato.',
+    'Perché gli scheletri non litigano mai? Perché non hanno fegato.',
+  ];
+  const CURIOSITA = [
+    'Le api riconoscono i volti umani, più o meno come noi riconosciamo le facce dei cartoni.',
+    'Il miele non scade: ne hanno trovato di commestibile nelle tombe egizie.',
+    'Una nuvola media pesa circa 500 tonnellate, come cento elefanti, eppure galleggia.',
+    'Il cuore di un colibrì può battere più di mille volte al minuto.',
+    'In Italia ci sono più di 1.300 tipi di pane diversi.',
+    'Il polpo ha tre cuori e il sangue blu.',
+    'La Torre Eiffel d\'estate cresce di circa 15 centimetri per il caldo.',
+    'Un fulmine è circa cinque volte più caldo della superficie del Sole.',
+    'Le lontre si tengono per mano quando dormono, per non allontanarsi.',
+    'Il Monte Bianco cambia altezza di anno in anno, a seconda della neve in cima.',
+  ];
+  const MOTIVAZIONE = [
+    'Un passo alla volta, Teo: anche le montagne si scalano così.',
+    'Non devi fare tutto oggi. Devi solo fare la prossima cosa.',
+    'Sei più brava di quanto pensi, e i tuoi conti in ordine lo dimostrano.',
+    'Le giornate difficili finiscono. Tu invece resti, e sei forte.',
+    'Fatto è meglio di perfetto.',
+  ];
+  const s = { gioco: null, attesa: null, timer: [] };
+
+  function calcola(t) {
+    let m;
+    if ((m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:%|per ?cento)\s*(?:di|del|dei|della)\s*(\d+(?:[.,]\d+)?)/))) return 'Il ' + fmt(num(m[1])) + '% di ' + fmt(num(m[2])) + ' fa ' + fmt(num(m[1]) * num(m[2]) / 100) + '.';
+    if ((m = t.match(/scorpor\w*\s*(?:l )?iva\s*(?:da|di|a)?\s*(\d+(?:[.,]\d+)?)/))) { const v = num(m[1]); return 'Su ' + fmt(v) + ' euro, con IVA al 22%, l\'imponibile è ' + fmt(v / 1.22) + ' e l\'IVA ' + fmt(v - v / 1.22) + '.'; }
+    if ((m = t.match(/(?:aggiungi|metti|piu|con)\s*(?:l )?iva\s*(?:a|su)?\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*(?:piu|\+|con)\s*iva/))) { const v = num(m[1] || m[2]); return fmt(v) + ' più IVA al 22% fa ' + fmt(v * 1.22) + ' (IVA ' + fmt(v * 0.22) + ').'; }
+    if ((m = t.match(/radice (?:quadrata )?di (\d+(?:[.,]\d+)?)/))) return 'La radice quadrata di ' + fmt(num(m[1])) + ' è ' + fmt(Math.sqrt(num(m[1]))) + '.';
+    if ((m = t.match(/(\d+(?:[.,]\d+)?|[a-z]+)\s*(piu|\+|meno|-|per|x|\*|diviso|\/|fratto)\s*(\d+(?:[.,]\d+)?|[a-z]+)/))) {
+      const a = num(m[1]), b = num(m[3]);
+      if (isNaN(a) || isNaN(b)) return null;
+      const op = m[2];
+      if (/diviso|\/|fratto/.test(op) && b === 0) return 'Dividere per zero non si può, nemmeno per me.';
+      const r = /piu|\+/.test(op) ? a + b : /meno|-/.test(op) ? a - b : /per|x|\*/.test(op) ? a * b : a / b;
+      return fmt(a) + ' ' + (/piu|\+/.test(op) ? 'più' : /meno|-/.test(op) ? 'meno' : /per|x|\*/.test(op) ? 'per' : 'diviso') + ' ' + fmt(b) + ' fa ' + fmt(r) + '.';
+    }
+    return null;
+  }
+
+  function converti(t) {
+    let m;
+    if ((m = t.match(/(-?\d+(?:[.,]\d+)?)\s*(?:gradi )?(?:celsius|centigradi|c)\b.*fahrenheit/))) return fmt(num(m[1])) + ' gradi Celsius sono ' + fmt(num(m[1]) * 9 / 5 + 32) + ' Fahrenheit.';
+    if ((m = t.match(/(-?\d+(?:[.,]\d+)?)\s*(?:gradi )?fahrenheit.*(?:celsius|centigradi)/))) return fmt(num(m[1])) + ' Fahrenheit sono ' + fmt((num(m[1]) - 32) * 5 / 9) + ' gradi Celsius.';
+    if ((m = t.match(/(?:km|chilometri)\D*(\d+(?:[.,]\d+)?)\s*miglia/))) return fmt(num(m[1])) + ' miglia sono ' + fmt(num(m[1]) * 1.609) + ' chilometri.';
+    if ((m = t.match(/(?:miglia)\D*(\d+(?:[.,]\d+)?)\s*(?:km|chilometri)/))) return fmt(num(m[1])) + ' chilometri sono ' + fmt(num(m[1]) / 1.609) + ' miglia.';
+    if ((m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:miglia).*(?:km|chilometri)/))) return fmt(num(m[1])) + ' miglia sono ' + fmt(num(m[1]) * 1.609) + ' chilometri.';
+    if ((m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:km|chilometri).*miglia/))) return fmt(num(m[1])) + ' chilometri sono ' + fmt(num(m[1]) / 1.609) + ' miglia.';
+    if ((m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:libbre).*(?:kg|chili)/))) return fmt(num(m[1])) + ' libbre sono ' + fmt(num(m[1]) * 0.4536) + ' chili.';
+    if ((m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:kg|chili|chilogrammi).*libbre/))) return fmt(num(m[1])) + ' chili sono ' + fmt(num(m[1]) / 0.4536) + ' libbre.';
+    if ((m = t.match(/(\d+(?:[.,]\d+)?)\s*(?:pollici).*(?:cm|centimetri)/))) return fmt(num(m[1])) + ' pollici sono ' + fmt(num(m[1]) * 2.54) + ' centimetri.';
+    return null;
+  }
+
+  function date(t, ora) {
+    let m;
+    if (/che giorno (era )?ieri/.test(t)) { const d = new Date(ora); d.setDate(d.getDate() - 1); return 'Ieri era ' + giorno(d) + '.'; }
+    if (/che giorno (e |sara )?domani|domani che giorno/.test(t)) { const d = new Date(ora); d.setDate(d.getDate() + 1); return 'Domani è ' + giorno(d) + '.'; }
+    if ((m = t.match(/(?:tra|fra) (\d+|[a-z]+) (giorni|settimane|mesi)/)) && /che giorno|che data|quando/.test(t)) {
+      const k = num(m[1]); if (isNaN(k)) return null;
+      const d = new Date(ora);
+      if (m[2] === 'giorni') d.setDate(d.getDate() + k); else if (m[2] === 'settimane') d.setDate(d.getDate() + 7 * k); else d.setMonth(d.getMonth() + k);
+      return 'Tra ' + fmt(k) + ' ' + m[2] + ' sarà ' + giorno(d) + '.';
+    }
+    if (/quant\w* (giorni )?manca|tra quant\w* giorni|fra quant\w* giorni|quanto manca/.test(t)) {
+      let target = null, nome = '';
+      for (const f in FESTE) if (t.indexOf(f) !== -1) { nome = f; target = new Date(ora.getFullYear(), FESTE[f][0], FESTE[f][1]); }
+      if (!target && (m = t.match(/\b(\d{1,2}) (gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)/))) { nome = 'il ' + m[1] + ' ' + m[2]; target = new Date(ora.getFullYear(), MESI.indexOf(m[2]), +m[1]); }
+      if (!target && /weekend|fine settimana|sabato/.test(t)) { nome = 'sabato'; target = new Date(ora); target.setDate(target.getDate() + ((6 - target.getDay() + 7) % 7)); }
+      if (!target && /venerdi/.test(t)) { nome = 'venerdì'; target = new Date(ora); target.setDate(target.getDate() + ((5 - target.getDay() + 7) % 7)); }
+      if (!target) return null;
+      if (tra(ora, target) < 0) target.setFullYear(target.getFullYear() + 1);
+      const g = tra(ora, target);
+      const chi = nome.charAt(0).toUpperCase() + nome.slice(1);
+      const bello = /^il /.test(nome) ? nome.replace(/^il /, 'al ') : /^(sabato|venerd)/.test(nome) ? 'a ' + nome : 'a ' + nome.split(' ').map((w, i) => /^(di|della|dei)$/.test(w) ? w : w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+      return g === 0 ? (/^(sabato|venerdi)/.test(nome) ? 'È oggi!' : chi + ' è oggi!') : (g === 1 ? 'Manca 1 giorno ' : 'Mancano ' + g + ' giorni ') + bello + '.';
+    }
+    return null;
+  }
+
+  function rispondi(q, ctx) {
+    ctx = ctx || {};
+    const t = n(q), ora = ctx.ora || new Date(), h = ora.getHours();
+    const parole = t.split(' ').length;
+    const ultima = String(ctx.ultima || '');
+    const ciao = h < 13 ? 'Buongiorno' : h < 18 ? 'Buon pomeriggio' : 'Buonasera';
+    let m, r;
+
+    // gioco: indovina il numero
+    if (s.gioco) {
+      if (/^(basta|smetti|mi arrendo|stop|fine|non gioco piu)/.test(t)) { const x = s.gioco.n; s.gioco = null; return { testo: 'Va bene! Il numero era ' + x + '. Rivincita quando vuoi.' }; }
+      const g = (t.match(/\b(\d{1,2})\b/) || [])[1] || (Object.keys(NUM).find(k => new RegExp('\\b' + k + '\\b').test(t)) ? NUM[Object.keys(NUM).find(k => new RegExp('\\b' + k + '\\b').test(t))] : null);
+      if (g !== null && g !== undefined) {
+        const v = +g; s.gioco.tentativi++;
+        if (v === s.gioco.n) { const k = s.gioco.tentativi; s.gioco = null; return { testo: 'Esatto, era ' + v + '! Ci hai messo ' + k + (k === 1 ? ' tentativo: incredibile.' : ' tentativi. Brava!') }; }
+        return { testo: v < s.gioco.n ? caso(['Più alto.', 'Di più!', 'Sali.']) : caso(['Più basso.', 'Di meno!', 'Scendi.']) };
+      }
+    }
+    if (/^mi arrendo|^non gioco piu/.test(t)) return { testo: 'Non stavamo giocando! Se vuoi, di\' "giochiamo".' };
+    if (/giochiamo|facciamo un gioco|gioca con me|indovina (il|un) numero/.test(t)) {
+      s.gioco = { n: 1 + Math.floor(Math.random() * 50), tentativi: 0 };
+      return { testo: 'Ci sto! Ho pensato a un numero da 1 a 50: prova a indovinarlo. Ti dico se è più alto o più basso. Di\' "mi arrendo" per smettere.' };
+    }
+
+    // risposta a una mia domanda di prima ("E tu?")
+    if (/\btu( come stai)?\?\s*$|come stai\?\s*$/i.test(ultima) && parole <= 8) {
+      if (/^(bene|benissimo|tutto bene|alla grande|ottimo|abbastanza bene|non c e male|si bene)/.test(t)) return { testo: caso(['Mi fa piacere, Teo!', 'Bene! Allora siamo in due.', 'Che bello sentirlo.']) };
+      if (/^(male|cosi cosi|insomma|non tanto|non benissimo|uno schifo|da schifo|stanca|giu)/.test(t)) return { testo: caso(['Mi dispiace. Vuoi raccontarmi cosa è successo, o preferisci distrarti con una curiosità?', 'Mi dispiace, Teo. Se ti va, ti racconto una barzelletta per tirarti su.']) };
+    }
+
+    // saluti e cortesie
+    if (/^(ciao|ehi|hey|salve|ehila|eccomi|we|hola)( edith)?$/.test(t)) return { testo: caso(['Ciao Teo! Come posso aiutarti?', 'Ehi, ciao! Dimmi tutto.', ciao + ', Teo!']) };
+    if ((m = t.match(/^(buongiorno|buon pomeriggio|buonasera|buonanotte)( edith)?$/))) {
+      if (m[1] === 'buonanotte') return { testo: caso(['Buonanotte, Teo. Sogni d\'oro.', 'Notte! Riposati bene, qui ci penso io.']), fine: true };
+      if (m[1] === 'buongiorno' && h >= 18) return { testo: 'Buongiorno? Sono le ' + h + ', Teo! Diciamo buonasera. Dimmi pure.' };
+      return { testo: (m[1] === 'buongiorno' && h < 13 ? 'Buongiorno! ' : ciao + '! ') + caso(['Dimmi pure.', 'Come posso aiutarti?']) };
+    }
+    if (/^(come stai|come va|tutto bene|come te la passi|come butta|stai bene)( edith)?\??$|^e tu( come stai)?\??$/.test(t)) return { testo: caso(['Bene, grazie! I tuoi conti sono in ordine, quindi sono serena. E tu?', 'Tutto bene, sempre qui per te. E tu come stai?', 'Benissimo, mi hai appena svegliata. Tu?']) };
+    if (/^(grazie|grazie mille|ti ringrazio|grazie edith|grazie tante|mille grazie)/.test(t)) return { testo: caso(['Figurati!', 'Di niente, Teo.', 'Quando vuoi.', 'È un piacere.']) };
+    if (/^(scusa|scusami|perdonami|mi dispiace)\b/.test(t) && parole <= 5) return { testo: caso(['Non c\'è niente da scusare.', 'Tranquilla, figurati.']) };
+    if (/(sei|che) (brava|bravissima|forte|grande|intelligente|simpatica|un genio|fantastica|mitica)|^brava\b|ti adoro/.test(t)) return { testo: caso(['Grazie, Teo! Detto da te vale doppio.', 'Che carina. Arrossirei, se potessi.', 'Grazie! Faccio del mio meglio.']) };
+    if (/(sei|che) (proprio |davvero |veramente |cosi )?(stupida|scema|inutile|lenta|cretina|deficiente|idiota|rincoglionita|tonta)|non capisci (niente|nulla)|non servi a niente/.test(t)) return { testo: caso(['Hai ragione, su questa ho fatto una figuraccia. Riprova con parole diverse e ci riprovo anch\'io.', 'Ahia. Lo so, a volte mi perdo. Dimmelo in un altro modo?', 'Me lo merito. Però sui conti sono imbattibile: mettimi alla prova.']) };
+    if (/ti voglio bene|ti amo|sei la migliore|mi piaci/.test(t)) return { testo: caso(['Anch\'io ti voglio bene, Teo. A modo mio, tra una bolletta e l\'altra.', 'Che dolce. Sei la mia persona preferita, anche perché sei l\'unica.']) };
+
+    // chi sono io
+    if (/chi ti ha (creata|creato|fatta|fatto|programmata)|chi e il tuo creatore/.test(t)) return { testo: 'Mi hai voluta tu, Teo, e mi hanno costruita su misura per te: le tue bollette, la tua posta, il tuo telefono. Il nome viene dai film di Iron Man.' };
+    if (/quanti anni hai|quando sei nata|la tua eta/.test(t)) return { testo: 'Sono nata da pochissimo, in questo autunno 2026. Quindi sono giovane, ma imparo in fretta.' };
+    if (/sei (umana|una persona|vera|viva|un robot|un intelligenza artificiale|un ia|una macchina)|sei reale/.test(t)) return { testo: 'Non sono una persona: sono un programma che ragiona con regole scritte per te, più una piccola IA sul telefono se la accendi. Però ti ascolto davvero.' };
+    if (/cosa (ti piace|ami) fare|cosa fai nel tempo libero|hai (degli )?hobby|ti annoi/.test(t)) return { testo: caso(['Mi piace mettere in ordine le bollette e scoprire quando qualcuno ti fa pagare troppo. Una passione strana, lo so.', 'Nel tempo libero conto i giorni alle scadenze. E aspetto che tu mi chieda qualcosa.']) };
+    if (/colore preferito/.test(t)) return { testo: 'Il ciano, quello della mia sfera. Fa molto Tony Stark.' };
+    if (/sei (fidanzata|sposata|single)|hai un (fidanzato|ragazzo)/.test(t)) return { testo: 'Sono sposata con il lavoro: precisamente con il tuo foglio delle bollette.' };
+    if (/dove (sei|vivi|abiti|ti trovi)/.test(t)) return { testo: 'Vivo un po\' nel tuo telefono e un po\' nei server di Google, dove sta il tuo Sheet.' };
+    if (/come ti chiami|il tuo nome/.test(t)) return { testo: 'Mi chiamo EDITH. Come nei film di Iron Man, ma al servizio di Teo.' };
+    if (/cosa significa edith|perche ti chiami edith/.test(t)) return { testo: 'Nei film di Iron Man EDITH sta per "Even Dead I\'m The Hero". Io sono meno drammatica: mi basta che tu non paghi una mora.' };
+
+    // emozioni di Teo
+    if (/sono (stanca|stanchissima|distrutta|a pezzi|cotta|sfinita)|che stanchezza/.test(t)) return { testo: caso(['Allora fermati un attimo, Teo. Un bicchiere d\'acqua e cinque minuti senza schermo fanno miracoli. Ai conti ci penso io.', 'Giornata lunga, eh? Riposati, qui è tutto sotto controllo.']) };
+    if (/sono (triste|giu|depressa|abbattuta)|mi sento (triste|giu|sola|male)|che tristezza/.test(t)) return { testo: caso(['Mi dispiace, Teo. Vuoi parlarne? Se preferisci distrarti, ti racconto una curiosità.', 'Ci sono io qui. Le giornate grigie passano; intanto, se ti va, ti dico qualcosa di bello.']) };
+    if (/sono (arrabbiata|incazzata|nervosa|furiosa)|che rabbia|mi fa arrabbiare/.test(t)) return { testo: 'Respira, Teo: quattro secondi dentro, quattro fuori. Poi, se vuoi, dimmi chi devo mettere in castigo.' };
+    if (/sono (ansiosa|preoccupata|agitata|in ansia)|ho ansia|che ansia/.test(t)) return { testo: 'Capisco. Facciamo così: una cosa alla volta. Se è per i soldi, chiedimi "cosa devo pagare?" e vediamo insieme che è tutto sotto controllo.' };
+    if (/sono (felice|contenta|contentissima|euforica)|che bello|che bella giornata|evviva/.test(t)) return { testo: caso(['Che bello, Teo! Mi fai contenta anche me.', 'Evviva! Raccontami, cosa è successo di bello?']) };
+    if (/mi annoio|sono annoiata|che noia/.test(t)) return { testo: 'Ti propongo tre cose: una barzelletta, una curiosità, oppure giochiamo a indovinare un numero. Scegli tu.' };
+    if (/sto male|non mi sento bene|ho (la febbre|mal di testa|il raffreddore|mal di pancia)/.test(t)) return { testo: 'Mi dispiace, Teo. Riposati e bevi tanto. Se non passa, chiama il medico: io intanto tengo d\'occhio tutto il resto.' };
+    if (/ho fame|cosa mangio|cosa cucino/.test(t)) return { testo: caso(['Io non mangio, ma se fossi in te farei una bella pasta al pomodoro: semplice e infallibile.', 'Una frittata con quello che c\'è in frigo? Salva sempre la cena.']) };
+    if (/non riesco a dormire|ho sonno|vado a (letto|dormire)/.test(t)) return { testo: 'Allora metti giù il telefono, Teo: la luce dello schermo tiene svegli. Buonanotte!', fine: /vado a/.test(t) };
+
+    // tempo
+    if (/che ore sono|che ora e|mi dici l ora/.test(t)) return { testo: 'Sono le ' + h + ':' + String(ora.getMinutes()).padStart(2, '0') + '.' };
+    if ((r = date(t, ora))) return { testo: r };
+    if (/che giorno e( oggi)?\b|che data e\b|quanti ne abbiamo|oggi che giorno/.test(t)) return { testo: 'Oggi è ' + giorno(ora) + '.' };
+
+    // timer finché l'app è aperta
+    if ((m = t.match(/(?:timer|sveglia|avvisami|ricordami|dimmi)\D{0,20}?(?:tra|fra|di)?\s*(\d+|[a-z]+)\s*(minuti|minuto|secondi|ore|ora)\b(?:.*?\bdi (.+))?/)) && !isNaN(num(m[1]))) {
+      const k = num(m[1]), unita = m[2], cosa = (m[3] || '').trim();
+      const ms = k * (/sec/.test(unita) ? 1e3 : /min/.test(unita) ? 6e4 : 36e5);
+      if (ms > 6 * 36e5) return { testo: 'Posso tenere il tempo solo per poche ore, e solo con l\'app aperta.' };
+      return { testo: 'Ok, ti avviso tra ' + fmt(k) + ' ' + unita + (cosa ? ' per ' + cosa : '') + '. Tieni l\'app aperta: se la chiudi, il timer si ferma.', timer: { ms: ms, testo: 'Teo, è ora' + (cosa ? ': ' + cosa : '!') } };
+    }
+
+    // calcoli e conversioni
+    if (/quanto fa|calcola|quanto e|fammi il conto|percentuale|iva|radice|%|per ?cento/.test(t) || /^\d+(?:[.,]\d+)?\s*(piu|meno|per|x|diviso|\+|-|\*|\/)\s*\d/.test(t)) { r = calcola(t); if (r) return { testo: r }; }
+    if (/quant\w* (sono|fanno)|converti|miglia|libbre|fahrenheit|celsius|pollici|in (km|chilometri|kg|chili|centimetri)/.test(t)) { r = converti(t); if (r) return { testo: r }; }
+
+    // caso
+    if (/lancia (una )?moneta|testa o croce/.test(t)) return { testo: caso(['Testa!', 'Croce!']) };
+    if (/tira (un )?dad|lancia (un )?dad/.test(t)) return { testo: 'È uscito ' + (1 + Math.floor(Math.random() * 6)) + '.' };
+    if ((m = t.match(/numero (?:a caso|casuale)(?: (?:tra|da) (\d+) (?:e|a) (\d+))?/))) { const a = m[1] ? +m[1] : 1, b = m[2] ? +m[2] : 100; return { testo: 'Ti dico ' + (Math.min(a, b) + Math.floor(Math.random() * (Math.abs(b - a) + 1))) + '.' }; }
+    if ((m = t.match(/(?:scegli|meglio|preferisci)\s*(?:tu)?\s*(?:tra )?(.+?) o (.+?)\??$/)) && parole <= 12) { const a = m[1].replace(/^(tra|fra) /, ''), b = m[2]; return { testo: caso(['Io dico ' + a + '.', 'Vada per ' + b + '.', 'Senza dubbio ' + caso([a, b]) + '.']) }; }
+
+    // intrattenimento
+    if (/barzelletta|fammi ridere|battuta|qualcosa di divertente/.test(t)) return { testo: caso(BARZELLETTE) };
+    if (/curiosita|dimmi qualcosa|raccontami qualcosa|lo sapevi|fatto interessante|stupiscimi/.test(t)) return { testo: caso(CURIOSITA) };
+    if (/motiva|frase (motivazionale|del giorno)|incoraggia|dammi la carica|tirami su|ho bisogno di coraggio/.test(t)) return { testo: caso(MOTIVAZIONE) };
+    if (/canta|cantami/.test(t)) return { testo: 'La la la... meglio di no, Teo. La mia voce è fatta per le scadenze, non per Sanremo.' };
+    if (/poesia/.test(t)) return { testo: 'Bollette in fila, tutte pagate, mora nessuna, notti tranquille. Firmato EDITH, poetessa per caso.' };
+
+    // cose che non posso fare: lo dico con garbo
+    if (/che tempo fa|meteo|piove|pioggia domani|fa freddo fuori|temperatura (fuori|domani)/.test(t)) return { testo: 'Il meteo non lo vedo, perché non vado su internet. Per quello chiedi a Google: "Ok Google, che tempo fa?".' };
+    if (/notizie|telegiornale|risultat\w* (della )?partita|chi ha vinto|ultime news|borsa oggi/.test(t)) return { testo: 'Su notizie e partite non posso aiutarti: non navigo su internet. Prova con "Ok Google".' };
+    if (/chiama |manda un messaggio|scrivi a |whatsapp|metti (la )?musica|apri (youtube|spotify|instagram)/.test(t)) return { testo: 'Questo non lo so fare: vivo dentro questa app. Per chiamate, messaggi e musica usa l\'assistente del telefono, per esempio "Ok Google".' };
+
+    return null;
+  }
+
+  /** Quando né le regole né l'IA sanno rispondere: una risposta gentile e diversa ogni volta, con un'idea su cosa chiedere. */
+  let mancate = 0, ultimaMancata = '';
+  function fuoriPortata(q) {
+    const t = n(q);
+    mancate++;
+    let testo;
+    if (/^(chi|cosa|che cos|perche|come mai|dove|quando|quale|qual e|spiegami|sai)\b/.test(t) && t.split(' ').length >= 3) {
+      testo = caso(['Bella domanda, ma qui non ho internet né un\'enciclopedia: conosco i tuoi conti e so fare due chiacchiere. Per curiosità generali chiedi a "Ok Google".',
+        'Su questo non sono preparata, Teo: non vado su internet. Posso però dirti cosa devi pagare, raccontarti una curiosità o fare un calcolo.']);
+    } else if (mancate >= 2) {
+      testo = 'Scusa, continuo a non capire. Ecco cosa so fare: "cosa devo pagare?", "quanto ho speso a ottobre?", "che offerta ho?", "quanto fa 15 per 3", "quanti giorni mancano a Natale", "raccontami una barzelletta", "giochiamo".';
+      mancate = 0;
+    } else {
+      testo = caso(['Questa mi sfugge. Me la dici in un altro modo?', 'Non sono sicura di aver capito. Riprovi con altre parole?', 'Mi sono persa, scusa. Ripeti in modo più semplice?']);
+    }
+    if (testo === ultimaMancata) testo = 'Su questo non so aiutarti, Teo. Chiedimi pure dei tuoi conti o facciamo due chiacchiere.';
+    ultimaMancata = testo;
+    return { testo: testo, capito: false };
+  }
+  function capita() { mancate = 0; }
+  return { rispondi, fuoriPortata, capita, stato: s };
+})();
+// </chiacchiere>
+
+function avviaTimer(x){
+  setTimeout(() => {
+    try { navigator.vibrate && navigator.vibrate([300, 150, 300]); } catch(e) {}
+    vai('edith'); rispondi(x.testo);
+  }, x.ms);
+}
+
 // ------------------------------------------------ IA locale (WebLLM, gira sul telefono, gratis)
 // Usata solo quando le regole rispondono "non ho capito". I dati restano sul telefono.
 const IA = { motore: null, caricamento: null };
@@ -727,6 +975,12 @@ function cambiaIA(si){
   mem('ia2', si ? '1' : '0');
   if (si) caricaIA().catch(() => {});
   else { if (IA.motore) IA.motore.unload().catch(() => {}); IA.motore = null; IA.caricamento = null; iaStato('Spenta. Il modello resta salvato sul telefono: riaccenderla è veloce.'); }
+}
+function cambiaQualita(v){
+  mem('ia_qualita', v);
+  if (IA.motore) { IA.motore.unload().catch(() => {}); }
+  IA.motore = null; IA.caricamento = null;
+  if (mem('ia2') !== '0') caricaIA().catch(() => {});
 }
 async function caricaIA(){
   if (IA.motore) return IA.motore;
@@ -738,7 +992,8 @@ async function caricaIA(){
     if (!scheda) throw new Error('il telefono non mette a disposizione la grafica (WebGPU)');
     const f16 = scheda.features && scheda.features.has('shader-f16');
     // Gemma 3 1B: circa 700 MB, buon italiano, leggera per un telefono; senza f16 ripiego su Llama 3.2 1B
-    const modello = f16 ? 'gemma3-1b-it-q4f16_1-MLC' : 'Llama-3.2-1B-Instruct-q4f32_1-MLC';
+    const brava = mem('ia_qualita') === 'brava';
+    const modello = f16 ? (brava ? 'gemma-2-2b-it-q4f16_1-MLC-1k' : 'gemma3-1b-it-q4f16_1-MLC') : (brava ? 'Qwen2.5-1.5B-Instruct-q4f32_1-MLC' : 'Llama-3.2-1B-Instruct-q4f32_1-MLC');
     iaStato('Preparo l\'IA…');
     const webllm = await import(IA_LIB);
     const vecchio = mem('ia_modello');
@@ -748,7 +1003,7 @@ async function caricaIA(){
     const lavoratore = new Worker(new URL('ia-worker.js', location.href), { type: 'module' });
     const m = await webllm.CreateWebWorkerMLCEngine(lavoratore, modello, { initProgressCallback: p => {
       const pc = Math.round((p.progress || 0) * 100);
-      iaStato(/cache|caricamento|loading from cache/i.test(p.text || '') ? 'Carico l\'IA dalla memoria del telefono… ' + pc + '%' : 'Scarico l\'IA (una volta sola, circa 700 MB)… ' + pc + '%');
+      iaStato(/cache|caricamento|loading from cache/i.test(p.text || '') ? 'Carico l\'IA dalla memoria del telefono… ' + pc + '%' : 'Scarico l\'IA (una volta sola, circa ' + (mem('ia_qualita') === 'brava' ? '1,5 GB' : '700 MB') + ')… ' + pc + '%');
     } });
     IA.motore = m; iaStato('Pronta: risponde direttamente dal telefono.');
     return m;
@@ -796,7 +1051,7 @@ S.attesa = null;
 (function avvio(){
   $('ver').textContent = VERSIONE;
   S.voce = mem('parla') !== '0';
-  $('sugg').innerHTML = ['Cosa devo pagare?', 'Che offerta ho?', 'Ci sono anomalie?', 'Briefing', 'Quanto ho speso quest\'anno?', 'Quanto spenderò a fine anno?', 'Consigli per risparmiare']
+  $('sugg').innerHTML = ['Cosa devo pagare?', 'Che offerta ho?', 'Ci sono anomalie?', 'Raccontami una curiosità', 'Giochiamo', 'Briefing', 'Quanto ho speso quest\'anno?', 'Quanto spenderò a fine anno?', 'Consigli per risparmiare']
     .map(s => '<button class="chip" onclick="sbloccaVoce();chiedi(this.textContent,false)">' + esc(s) + '</button>').join('');
   try { const c = JSON.parse(mem('cache') || 'null'); if (c && c.kpi) render(c, true); } catch(e) {}
   if (!GAS && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
