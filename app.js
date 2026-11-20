@@ -281,7 +281,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov · v15';
+const VERSIONE = '20 nov · v16';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -816,7 +816,7 @@ async function caricaIA(){
   catch(e) { IA.caricamento = null; iaStato('Non riesco ad attivarla: ' + (e && e.message || e)); throw e; }
 }
 // L'IA fa solo due chiacchiere: conti, scadenze e posta restano alle regole e allo script.
-const CONTI = /benzina|affitto|pieno|supermercato|farmacia|parcheggio|annulla|bollett|pag[aho]|scad|spes|speso|spend|cost|assicur|polizz|offert|tariff|euro|€|kwh|smc|\bluce\b|\bgas\b|conto|soldi|import|rat[ae]\b|fattur|mail|posta|spazio|anomal|briefing|riepilog/i;
+const CONTI = /calendar|agenda|appuntament|impegn|ricordami (di|che) (?!.*\b(minut|second|or[ae]\b))|benzina|affitto|pieno|supermercato|farmacia|parcheggio|annulla|bollett|pag[aho]|scad|spes|speso|spend|cost|assicur|polizz|offert|tariff|euro|€|kwh|smc|\bluce\b|\bgas\b|conto|soldi|import|rat[ae]\b|fattur|mail|posta|spazio|anomal|briefing|riepilog/i;
 async function chiediIA(q, bolla){
   const m = IA.motore; if (!m) return null;
   const regole = 'Sei EDITH, l\'assistente di Teo (è una donna: usa il femminile con lei). Fai due chiacchiere in italiano: rispondi in una o due frasi brevi e naturali, ' +

@@ -1,6 +1,6 @@
 // EDITH – service worker: l'app si apre subito e anche senza rete.
 // Le chiamate allo script (script.google.com) non passano di qui: vanno sempre in rete.
-const VERSIONE = 'edith-v15';
+const VERSIONE = 'edith-v16';
 const FILE = ['./', 'index.html', 'app.js', 'style.css', 'manifest.json', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

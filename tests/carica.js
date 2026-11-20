@@ -52,6 +52,20 @@ function carica(opz = {}) {
     insertSheet: n => (fogli[n] = new Foglio(n)),
   };
   let uuid = 0;
+  // calendario finto: gli eventi creati finiscono in __eventi
+  const eventi = [];
+  const evento = (titolo, inizio, fine, tutto, opz) => {
+    const e = { titolo, inizio, fine, tutto, opz, id: 'ev' + (eventi.length + 1), promemoria: [], tolto: false,
+      getId() { return this.id; }, getTitle() { return this.titolo; }, isAllDayEvent() { return this.tutto; },
+      getStartTime() { return this.inizio; }, addPopupReminder(m) { this.promemoria.push(m); }, deleteEvent() { this.tolto = true; } };
+    eventi.push(e); return e;
+  };
+  const calPrincipale = {
+    createAllDayEvent: (t, d, o) => evento(t, d, null, true, o),
+    createEvent: (t, a, b, o) => evento(t, a, b, false, o),
+    getEventById: id => eventi.find(e => e.id === id && !e.tolto) || null,
+    getEventsForDay: d => eventi.filter(e => !e.tolto && formatDate(e.inizio, '', 'yyyy-MM-dd') === formatDate(d, '', 'yyyy-MM-dd')),
+  };
   const ctx = {
     console, Math, JSON, RegExp, String, Number, Array, Object, Boolean, Error, isNaN, parseFloat, parseInt, Infinity, encodeURIComponent,
     Date: D,
@@ -71,6 +85,7 @@ function carica(opz = {}) {
       }),
     },
     CacheService: { getScriptCache: () => ({ get: k => (cache[k] === undefined ? null : cache[k]), put: (k, v) => { cache[k] = v; }, remove: k => { delete cache[k]; } }) },
+    CalendarApp: { getDefaultCalendar: () => calPrincipale },
     LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {} }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => null, openById: () => ss },
     ScriptApp: { getProjectTriggers: () => [{ getHandlerFunction: () => 'elaboraTutto' }] },
@@ -86,7 +101,7 @@ function carica(opz = {}) {
   const codice = files.map(f => fs.readFileSync(path.join(SRC, f), 'utf8')).join('\n').replace(/^(const|let) /gm, 'var ');
   vm.runInContext(codice, ctx, { filename: 'EDITH.gs' });
   ctx.CONFIG.SHEET_ID = 'ID_TEST';
-  ctx.__props = props; ctx.__fogli = fogli; ctx.__posta = posta;
+  ctx.__props = props; ctx.__fogli = fogli; ctx.__posta = posta; ctx.__eventi = eventi;
   ctx.__foglio = (nome, righe) => (fogli[nome] = new Foglio(nome, righe));
   return ctx;
 }
