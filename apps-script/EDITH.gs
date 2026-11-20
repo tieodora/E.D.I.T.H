@@ -1713,10 +1713,20 @@ function apiChiedi(domanda, storia) {
       return { testo: ult ? String(ult.testo) : 'Non ti ho ancora detto niente!', fonte: 'locale' };
     }
     const t0 = normalizza_(q), parole = t0.split(' ').length;
-    const eSeguito = (/^(e|ed|invece|anche|pure)\b/.test(t0) && parole <= 7) || soloDettagli_(t0, P);
+    const ultimaEd = storia.filter(m => m.ruolo !== 'io').pop();
+    // "sì" a una proposta di Edith ("Vuoi che la confronti con agosto?") → esegue la proposta
+    if (ultimaEd && ultimaEd.seguito && parole <= 4) {
+      if (/^(si|certo|ok|okay|va bene|dai|volentieri|perche no|si grazie|ok dai|vai|fallo|sicuro|esatto)\b/.test(t0)) {
+        const r = rispostaLocale_(String(ultimaEd.seguito), P);
+        if (r) return comunica_(r, q, storia, P);
+      }
+      if (/^(no|no grazie|lascia stare|non serve|niente)\b/.test(t0)) return { testo: aCaso_(['Va bene.', 'Ok, come vuoi.', 'Nessun problema.']), fonte: 'locale' };
+    }
+    const eSeguito = (/^(e|ed|invece|anche|pure)\b/.test(t0) && parole <= 7) || soloDettagli_(t0, P) ||
+      (/\b(quella|quello|questa|questo|la stessa|lo stesso|di quella|di quello)\b/.test(t0) && parole <= 8);
     const locale = eSeguito ? (rispostaLocale_(seguito_(q, storia, P), P) || rispostaLocale_(q, P)) : rispostaLocale_(q, P);
-    if (locale) return Object.assign({ fonte: 'locale' }, locale);
-    return { testo: nonCapito_(), fonte: 'locale', capito: false };
+    if (locale) return comunica_(Object.assign({ fonte: 'locale' }, locale), q, storia, P);
+    return Object.assign({ fonte: 'locale', capito: false }, chiarisci_(t0, P));
   } catch (e) {
     log_('Errore assistente', q + ' -> ' + e.message);
     return { testo: 'Ho avuto un problema a leggere i dati (' + e.message + '). Riprova tra poco.', fonte: 'locale' };
@@ -1765,6 +1775,48 @@ function soloDettagli_(t, P) {
   if (c.chi) normalizza_(c.chi).split(' ').forEach(w => { resto = resto.replace(new RegExp('\\b' + w + '\\b', 'g'), ' '); });
   return resto.replace(/\b(a|di|del|della|dello|il|lo|la|le|i|gli|per|e|ed|in|nel|nella|quello|quella|invece|anche|pure)\b/g, ' ').trim() === '';
 }
+
+// ---------------------------------------------------------------- stile di conversazione
+
+/** Rifinisce la risposta: niente ripetizioni identiche, un po' di calore, empatia, e propone il passo successivo. */
+function comunica_(r, q, storia, P) {
+  const t = normalizza_(q);
+  const ultima = storia.filter(m => m.ruolo !== 'io').pop();
+  // se dico esattamente la stessa cosa di prima, lo ammetto
+  if (ultima && String(ultima.testo) === r.testo && !/^(si|ok|va bene)/.test(t)) r.testo = aCaso_(['Come ti dicevo: ', 'Te lo ripeto: ']) + minuscola_(r.testo);
+  // empatia: se sei scocciata o preoccupata, lo riconosco prima del dato
+  const umore = /che palle|uffa|mannaggia|porca|che stress|sono stanc[ao]|odio le bollette|che schifo|esagerat|una rapina|troppo car[ao]|ladri/.test(t);
+  if (umore && !r.fine) r.testo = aCaso_(['Ti capisco. ', 'Eh, lo so. ', 'Hai ragione a sbuffare. ']) + r.testo;
+  // proposta del passo successivo, se non ce n'è già una e la risposta non è una chiacchiera
+  if (r.seguito && r.proposta && !/\?$/.test(r.testo)) r.testo += ' ' + r.proposta;
+  delete r.proposta;
+  return r;
+}
+
+/** Quando non capisco: invece di una risposta a caso, chiedo cosa intendi o propongo la domanda più vicina. */
+function chiarisci_(t, P) {
+  const c = capisci_(t, P);
+  const cosa = c.chi || (c.tipo ? 'la ' + c.tipo.toLowerCase() : c.ass ? 'le assicurazioni' : c.mesi.length ? NOMI_MESI[c.mesi[0]] : '');
+  if (cosa) {
+    const base = c.chi || (c.tipo ? c.tipo.toLowerCase() : c.ass ? 'assicurazione' : '');
+    return { testo: 'Su ' + cosa + ' cosa vuoi sapere? Quanto hai speso, quando scade o l\'ultima arrivata?',
+      seguito: 'quanto ho speso ' + (base ? 'di ' + base : '') + (c.mesi.length ? ' a ' + NOMI_MESI[c.mesi[0]] : ''), proposta: '' };
+  }
+  const esempi = ['cosa devo pagare', 'quanto ho speso quest anno', 'quando scade l assicurazione', 'ci sono anomalie', 'briefing',
+    'quanto spendero a fine anno', 'la bolletta piu cara', 'quanto manca alla scadenza', 'quanto spazio ho', 'controlla la posta', 'consigli per risparmiare', 'riepilogo'];
+  const vuote = /^(il|lo|la|le|i|gli|di|a|da|in|con|su|per|che|e|mi|ti|si|un|una|ho|hai|quanto|come|cosa|quando)$/;
+  const parole = t.split(' ').filter(w => w.length > 2 && !vuote.test(w));
+  let meglio = null, punti = 0;
+  esempi.forEach(e => {
+    const p = parole.filter(w => e.split(' ').some(x => x.length > 2 && (x === w || (w.length > 4 && x.slice(0, 5) === w.slice(0, 5))))).length;
+    if (p > punti) { punti = p; meglio = e; }
+  });
+  if (meglio) return { testo: 'Non sono sicura di aver capito. Intendevi "' + meglio + '"?', seguito: meglio };
+  return { testo: nonCapito_() };
+}
+
+function aMese_(i) { return (/^[aeiou]/.test(NOMI_MESI[i]) ? 'ad ' : 'a ') + NOMI_MESI[i]; }
+function cap_(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 function aCaso_(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
 
@@ -1817,11 +1869,14 @@ function capisci_(t, P) {
   const idx = mesi.map(m => m.i);
   if (/questo mese|mese corrente/.test(t)) idx.push(oggi.getMonth());
   if (/mese scorso|mese passato/.test(t)) idx.push((oggi.getMonth() + 11) % 12);
-  const tipo = (SINONIMI_TIPO.find(([, re]) => re.test(t)) || [])[0] || null;
-  const ass = /assicura\w*|polizz\w*|\brat[ae]\b|\brca\b|\bauto\b|\bmoto\b/.test(t);
   const nomi = uniq_(P.map(p => p.chi).filter(c => c));
   const generiche = /^(energia|energy|assicurazioni|assicurazione|spa|gas|luce|italia|servizi|group|gruppo|acqua|the)$/;
   const chi = nomi.find(c => normalizza_(c).split(' ').some(w => w.length > 2 && !generiche.test(w) && new RegExp('\\b' + w + '\\b').test(t))) || null;
+  // "SOMET ENERGIA" è un fornitore, non la parola "energia" (= luce): tolgo il nome prima di cercare il tipo
+  let tt = t;
+  if (chi) normalizza_(chi).split(' ').forEach(w => { tt = tt.replace(new RegExp('\\b' + w + '\\b', 'g'), ' '); });
+  const tipo = (SINONIMI_TIPO.find(([, re]) => re.test(tt)) || [])[0] || null;
+  const ass = /assicura\w*|polizz\w*|\brat[ae]\b|\brca\b|\bauto\b|\bmoto\b/.test(tt);
   return { anno, mesi: idx, tipo, ass, chi };
 }
 
@@ -1880,7 +1935,7 @@ function rispostaLocale_(q, P) {
   }
   if (/che mi racconti|novita\b|che si dice|cosa mi dici/.test(t) && corta) return { testo: briefing_(P) };
   if (/chi sei|come ti chiami|cosa sei/.test(t)) {
-    return { testo: 'Sono EDITH, la tua assistente per bollette, assicurazioni e posta. Lavoro sui dati del tuo Sheet, senza servizi esterni.' };
+    return { testo: 'Sono EDITH, la tua assistente per bollette, assicurazioni e posta. Ragiono con regole scritte apposta per te sui dati del tuo Sheet, senza servizi esterni: non sono un\'intelligenza artificiale vera, quindi se una domanda esce dal mio campo te lo dico.' };
   }
   if (/che ore sono|che ora e/.test(t)) return { testo: 'Sono le ' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'HH:mm') + '.' };
   if (/che giorno e|che data e|quanti ne abbiamo/.test(t)) {
@@ -1890,7 +1945,10 @@ function rispostaLocale_(q, P) {
 
   // skill: controllo anomalie
   if (/anomali\w*|problem\w*|qualcosa (che )?non va|c e qualcosa di strano|tutto (ok|bene|a posto|in ordine|regolare)|controlla (il sistema|tutto|i dati)|stato del sistema|errori|cose strane|stranezze|check/.test(t)) {
-    return { testo: testoAnomalie_(P) };
+    const an = anomalie_(P);
+    const r = { testo: testoAnomalie_(P) };
+    if (an.some(x => /sopra la tua media/.test(x.testo))) { r.seguito = 'consigli per risparmiare'; r.proposta = 'Vuoi qualche idea per spendere meno?'; }
+    return r;
   }
   // skill: previsione di spesa
   if (/previsione|quanto spendero|quanto spenderò|stima|fine anno|prossim[io] mes[ie]/.test(t) && !/scad/.test(t)) {
@@ -1978,7 +2036,8 @@ function rispostaLocale_(q, P) {
     if (!lista.length) return { testo: 'Non hai nulla da pagare in questo momento.' };
     const tot = somma(lista);
     return { testo: 'Da pagare: ' + lista.slice(0, 6).map(descr_).join('; ') + '.' + (lista.length > 6 ? ' E altre ' + (lista.length - 6) + '.' : '') +
-      (lista.length > 1 ? ' In tutto ' + eur_(tot) + '.' : '') };
+      (lista.length > 1 ? ' In tutto ' + eur_(tot) + '.' : ''),
+      seguito: 'quanto manca', proposta: aCaso_(['Vuoi sapere quanti giorni mancano alla prima?', 'Ti dico quanto manca alla prima scadenza?']) };
   }
 
   // la più cara / la più economica
@@ -1999,7 +2058,7 @@ function rispostaLocale_(q, P) {
       const s = m => somma(base.filter(p => p.rif.slice(0, 4) === c.anno && +p.rif.slice(5, 7) === m + 1));
       const a = s(m1), b = s(m2), d = b - a;
       return { testo: 'Spesa ' + etichetta + ': ' + NOMI_MESI[m1] + ' ' + eur_(a) + ', ' + NOMI_MESI[m2] + ' ' + eur_(b) + '. ' +
-        (a === 0 && b === 0 ? 'Nessuna spesa in entrambi i mesi.' : d === 0 ? 'Identica.' : (d > 0 ? 'Più alta di ' : 'Più bassa di ') + eur_(Math.abs(d)) + (a ? ' (' + (d > 0 ? '+' : '') + Math.round(d / a * 100) + '%).' : '.')) };
+        (a === 0 && b === 0 ? 'Nessuna spesa in entrambi i mesi.' : a === 0 ? cap_(aMese_(m1)) + ' non era arrivato niente.' : b === 0 ? cap_(aMese_(m2)) + ' non era arrivato niente.' : d === 0 ? 'Identica.' : (d > 0 ? 'Più alta di ' : 'Più bassa di ') + eur_(Math.abs(d)) + (a ? ' (' + (d > 0 ? '+' : '') + Math.round(d / a * 100) + '%).' : '.')) };
     }
     const docs = base.slice().sort((x, y) => y.rif.localeCompare(x.rif));
     if (docs.length < 2) return { testo: 'Mi servono almeno due documenti ' + etichetta + ' per fare un confronto.' };
@@ -2044,10 +2103,20 @@ function rispostaLocale_(q, P) {
     const tutto = /tutto|in totale|complessiv\w*|in tutto/.test(t) && !c.tipo && !c.chi && !c.ass;
     const del = (tutto ? P.filter(p => p.importo !== null) : base).filter(p => p.rif.slice(0, 4) === c.anno &&
       (!c.mesi.length || +p.rif.slice(5, 7) === c.mesi[0] + 1));
-    const quando = (c.mesi.length ? 'a ' + NOMI_MESI[c.mesi[0]] + ' ' : 'nel ') + c.anno;
+    const quando = (c.mesi.length ? aMese_(c.mesi[0]) + ' ' : 'nel ') + c.anno;
     const misto = c.tipo && del.some(p => p.tipo !== c.tipo);
-    return { testo: 'Hai speso ' + eur_(somma(del)) + ' ' + (tutto ? 'in totale' : etichetta) + ' ' + quando + ' (' + del.length + (del.length === 1 ? ' documento' : ' documenti') +
+    if (!del.length) return { testo: cap_(quando) + ' non ho documenti ' + (tutto ? '' : etichetta) + '.' };
+    const out = { testo: 'Hai speso ' + eur_(somma(del)) + ' ' + (tutto ? 'in totale' : etichetta) + ' ' + quando + ' (' + del.length + (del.length === 1 ? ' documento' : ' documenti') +
       (misto ? ', comprese le bollette luce e gas insieme' : '') + ').' };
+    const chiave = c.chi ? c.chi : c.tipo ? c.tipo.toLowerCase() : c.ass ? 'assicurazioni' : 'bollette';
+    if (c.mesi.length && c.mesi[0] > 0) {
+      out.seguito = 'confronta ' + NOMI_MESI[c.mesi[0] - 1] + ' e ' + NOMI_MESI[c.mesi[0]] + ' ' + chiave;
+      out.proposta = aCaso_(['Vuoi che lo confronti con ' + NOMI_MESI[c.mesi[0] - 1] + '?', 'Ti faccio il confronto con ' + NOMI_MESI[c.mesi[0] - 1] + '?']);
+    } else if (!c.mesi.length && !tutto) {
+      out.seguito = 'media di ' + chiave + ' ' + c.anno;
+      out.proposta = aCaso_(['Vuoi sapere quanto fa al mese?', 'Ti dico anche la media mensile?']);
+    }
+    return out;
   }
   return null;
 }
