@@ -167,7 +167,9 @@ a{color:var(--accent)}
       <div id="regole" class="muted">—</div>
       <div class="actions"><button class="danger small" onclick="eseguiPul()">Esegui regole spuntate…</button></div></div>
     <div class="card"><h2>Mail più pesanti <button class="ghost small" onclick="reportPes()">Aggiorna</button></h2>
+      <div id="pesantiTot" class="muted" style="margin-bottom:6px"></div>
       <div id="pesanti" class="muted">—</div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Tutto finisce nel Cestino di Gmail: la cancellazione definitiva la fai tu quando vuoi.</p>
       <div class="actions"><button class="danger small" onclick="cestinaPes()">Cestina selezionate…</button></div></div>
   </section>
 
@@ -270,9 +272,13 @@ function pillStato(s){
 }
 
 // ------------------------------------------------ HOME
-function render(d){
+function render(d, daCache){
   S.dati = d;
-  $('sub').textContent = 'Anno ' + d.anno + ' · aggiornato ' + new Date().toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'});
+  const quando = daCache ? new Date(Number(mem('cache_t') || Date.now())) : new Date();
+  const ora = quando.toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'});
+  $('sub').textContent = 'Anno ' + d.anno + ' · ' + (daCache ? 'dati delle ' + ora + (quando.toDateString() !== new Date().toDateString() ? ' del ' + quando.toLocaleDateString('it-IT') : '') + ', aggiorno…' : 'aggiornato ' + ora);
+  // ultimi dati salvati sul telefono: l'app si apre subito e funziona anche senza rete
+  if (!daCache) { mem('cache', JSON.stringify(d)); mem('cache_t', String(Date.now())); }
   $('kpis').innerHTML = [
     ['Bollette ' + d.anno, eur(d.kpi.bollette)], ['Media mensile', eur(d.kpi.media)],
     ['Assicurazioni ' + d.anno, eur(d.kpi.assicurazioni)], ['Da pagare', d.kpi.aperte + ' · ' + eur(d.kpi.apertiTot)],
@@ -360,16 +366,28 @@ function renderPosta(){
     '<input type="checkbox"' + (r['ESEGUI'] === true ? ' checked' : '') + ' onchange="spunta(\'PULIZIA\',' + r.riga + ',\'ESEGUI\',this.checked)"></div>').join('') : '—';
 
   const H = S.posta ? S.posta.pesanti : [];
+  const mb = arr => arr.reduce((t, r) => t + Number(r['MB'] || 0), 0);
+  const sel = H.filter(r => r['CESTINA'] === true);
+  const gb = x => x >= 1024 ? (x / 1024).toFixed(2).replace('.', ',') + ' GB' : Math.round(x) + ' MB';
+  $('pesantiTot').innerHTML = H.length ? '<b>' + gb(mb(H)) + '</b> in ' + H.length + ' mail · selezionate: <b>' + sel.length + '</b> (' + gb(mb(sel)) + ')' +
+    ' <button class="ghost small" onclick="selTutte(' + (sel.length < H.length) + ')">' + (sel.length < H.length ? 'Seleziona tutte' : 'Deseleziona') + '</button>' : '';
   $('pesanti').innerHTML = H.length ? H.map(r =>
     '<div class="row"><div class="t"><b>' + esc(r['OGGETTO']) + '</b><small>' + esc(String(r['MITTENTE']).replace(/<.*>/, '')) + ' · ' + dt(r['DATA']) +
     ' · <a href="' + esc(r['LINK']) + '" target="_blank">apri</a></small></div><div class="amt">' + r['MB'] + ' MB</div>' +
     '<input type="checkbox"' + (r['CESTINA'] === true ? ' checked' : '') + ' onchange="spunta(\'MAIL PESANTI\',' + r.riga + ',\'CESTINA\',this.checked)"></div>').join('')
     : 'Tocca "Aggiorna" per elencare le mail oltre 5 MB.';
 }
+async function selTutte(v){
+  const H = S.posta ? S.posta.pesanti : [];
+  await call('apiSpuntaTutte', 'MAIL PESANTI', 'CESTINA', v);
+  H.forEach(r => { r['CESTINA'] = v; });
+  renderPosta();
+}
 function spunta(foglio, riga, col, val){
   call('apiSpunta', foglio, riga, col, val).then(() => {
     const lista = foglio === 'PULIZIA' ? S.posta.regole : S.posta.pesanti;
     const r = lista.find(x => x.riga === riga); if (r) r[col] = val;
+    if (foglio !== 'PULIZIA') renderPosta();
   });
 }
 async function lento(btnTesto, fn, ...args){ toast(btnTesto + '… può richiedere qualche minuto'); return call(fn, ...args); }
@@ -669,12 +687,17 @@ S.auto = false; S.silenzi = 0; S.attesa = null;
     if (!mem('url') || !mem('k')) { mostraSetup(true); return; }
   }
   const daScorciatoia = /[?&]ascolta=1\b/.test(location.search);
+  try { const c = JSON.parse(mem('cache') || 'null'); if (c && c.kpi) render(c, true); } catch(e) {}
+  if (!GAS && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
   S.veglia = mem('veglia') === '1'; $('btnVeglia').classList.toggle('auto-on', S.veglia);
   call('apiDati').then(d => {
     render(d); const vv = store('edith_view'); if (vv) vai(vv);
     // aperta da Siri / Google Assistant con "Edith, sono io": parte subito la conversazione
     if (daScorciatoia) sveglia(); else if (S.veglia) { schermoAcceso(); veglia(); }
-  }).catch(() => { if (!GAS) $('sub').textContent = 'non collegata: tocca ⚙︎'; });
+  }).catch(() => {
+    if (S.dati) $('sub').textContent = (navigator.onLine ? 'non raggiungibile' : 'offline') + ' · ' + $('sub').textContent.replace(/, aggiorno…$/, '');
+    else if (!GAS) $('sub').textContent = 'non collegata: tocca ⚙︎';
+  });
 })();
 </script>
 </body>
