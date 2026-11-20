@@ -515,7 +515,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov · v12';
+const VERSIONE = '20 nov · v13';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -547,7 +547,13 @@ function avviaAscolto(){
     let parz = '';
     for (let i = e.resultIndex; i < e.results.length; i++) {
       const t = e.results[i][0].transcript;
-      if (e.results[i].isFinal) { $('sentito').textContent = ''; capito(t); return; }
+      if (e.results[i].isFinal) {
+        $('sentito').textContent = '';
+        const conf = e.results[i][0].confidence;
+        if (conf > 0 && conf < 0.4) continue;            // capito male: probabilmente rumore
+        if (eco(t)) continue;                              // è la mia voce rimasta nel microfono
+        capito(t); return;
+      }
       parz += t;
     }
     $('sentito').textContent = parz;
@@ -566,13 +572,30 @@ function avviaAscolto(){
   try { r.start(); V.rec = r; } catch(e) { V.rec = null; }
   aggiornaStato();
 }
+// Mentre EDITH parla: ignora qualsiasi rumore o voce, si ferma solo con "stop" (o basta, zitta, fermati).
+const PAROLE_STOP = /\b(stop|basta|zitta|fermati|ferma|silenzio|smettila|taci)\b/i;
+function ascoltaStop(){
+  if (!SR || !V.parlando || V.stopRec || mem('ascolto_stop') === '0' || document.visibilityState !== 'visible') return;
+  let r; try { r = new SR(); } catch(e) { return; }
+  r.lang = 'it-IT'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 3;
+  r.onresult = e => {
+    for (let i = e.resultIndex; i < e.results.length; i++)
+      for (let j = 0; j < e.results[i].length; j++)
+        if (PAROLE_STOP.test(e.results[i][j].transcript)) { V.stopDetto = true; fermaStop(); try { speechSynthesis.cancel(); } catch(x) {} return setTimeout(() => { if (V.parlando) { V.parlando = false; aggiornaStato(); riprendi(); } }, 700); }
+    // tutto il resto (radio, altre persone, la mia stessa voce) lo ignoro
+  };
+  r.onerror = () => {};
+  r.onend = () => { V.stopRec = null; if (V.parlando) setTimeout(ascoltaStop, 200); };
+  try { r.start(); V.stopRec = r; V.stopAttivo = true; } catch(e) { V.stopRec = null; }
+}
+function fermaStop(){ const r = V.stopRec; V.stopRec = null; V.stopAttivo = false; if (r) { r.onend = null; try { r.abort(); } catch(e) {} } }
 function fermaAscolto(){
   const r = V.rec; V.rec = null;
   if (r) { r.onend = null; try { r.abort(); } catch(e) {} }
   aggiornaStato();
 }
 function spegniTutto(){
-  V.voluto = false; fermaAscolto();
+  V.voluto = false; fermaAscolto(); fermaStop();
   try { speechSynthesis.cancel(); } catch(e) {}
   V.parlando = false; livello(0); aggiornaStato();
 }
@@ -584,7 +607,7 @@ window.addEventListener('pagehide', spegniTutto);
 
 function tocco(){
   sbloccaVoce();
-  if (V.parlando) { try { speechSynthesis.cancel(); } catch(e) {} return; }   // tocca per interrompere
+  if (V.parlando) { V.stopDetto = true; try { speechSynthesis.cancel(); } catch(e) {} return; }   // tocca per interrompere
   if (V.pausa || !V.rec) { V.pausa = false; avviaAscolto(); }
   else { V.pausa = true; fermaAscolto(); }
 }
@@ -592,6 +615,12 @@ function tocco(){
 // ------------------------------------------------ cosa hai detto
 const SI = /^(si|sì|certo|conferma|confermo|vai|ok|okay|esatto|procedi|fallo)(?=[\s.,!]|$)/i;
 const NO = /^(no|annulla|lascia stare|non ancora|aspetta)(?=[\s.,!]|$)/i;
+// la frase sentita è quasi uguale a quello che ho appena detto io?
+function eco(t){
+  const ult = (S.storia.filter(x => x.ruolo === 'edith').pop() || {}).testo || '';
+  const a = norm(t).split(' ').filter(w => w.length > 2), b = new Set(norm(ult).split(' '));
+  return a.length >= 3 && a.filter(w => b.has(w)).length / a.length > 0.7;
+}
 function capito(t){ t = t.trim(); if (t) chiedi(t, true); }
 function invia(){ const q = $('q').value.trim(); if (!q) return; $('q').value = ''; sbloccaVoce(); chiedi(q, false); }
 
@@ -706,7 +735,15 @@ function passo(){
 }
 
 function parla(testo, poi){
-  const fine = () => { if (!V.parlando) return; V.parlando = false; aggiornaStato(); if (poi) setTimeout(poi, 200); };
+  const inizio = performance.now(), stimaMs = 1500 + testo.length * 75;
+  const fine = () => {
+    if (!V.parlando) return;
+    // alcuni Android segnalano la fine troppo presto: se sta ancora parlando aspetto, così non ascolto me stessa
+    if (window.speechSynthesis && speechSynthesis.speaking && performance.now() - inizio < stimaMs * 2) { setTimeout(fine, 300); return; }
+    // se la voce si è spenta subito dopo aver acceso l'ascolto dello "stop", su questo telefono le due cose non convivono: lo disattivo
+    if (V.stopAttivo && performance.now() - inizio < stimaMs * 0.35 && !V.stopDetto) { mem('ascolto_stop', '0'); }
+    V.parlando = false; fermaStop(); aggiornaStato(); if (poi) setTimeout(poi, 350);
+  };
   if (!S.voce || !('speechSynthesis' in window)) { if (poi) poi(); return; }
   try {
     speechSynthesis.cancel();
@@ -720,8 +757,10 @@ function parla(testo, poi){
       if (e.error === 'not-allowed') { V.voceBloccata = true; V.daDire = testo; $('sentito').textContent = 'Tocca lo schermo una volta per sentire la mia voce.'; V.parlando = true; fine(); return; }
       V.parlando = true; fine();
     };
-    V.parlando = true; fermaAscolto(); aggiornaStato(); livello(.4);
+    V.parlando = true; V.stopDetto = false; fermaAscolto(); aggiornaStato(); livello(.4);
     speechSynthesis.speak(u);
+    setTimeout(ascoltaStop, 700);   // mentre parlo, ascolto solo la parola stop
+
     // rete di sicurezza: se il telefono non segnala la fine
     const stima = 1500 + testo.length * 75;
     setTimeout(() => { if (V.parlando && !speechSynthesis.speaking) fine(); }, stima);
