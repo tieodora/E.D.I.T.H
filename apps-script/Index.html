@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="EDITH">
+<meta name="theme-color" content="#0f1b2a">
+<title>EDITH</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+:root{
+  --bg:#f4f6f9;--card:#ffffff;--ink:#14202e;--muted:#5f6b7a;--line:#e3e8ef;
+  --accent:#2563eb;--accent-ink:#ffffff;--ok:#15803d;--ok-bg:#dcfce7;--warn:#a16207;--warn-bg:#fef9c3;
+  --bad:#b91c1c;--bad-bg:#fee2e2;--info:#1d4ed8;--info-bg:#dbeafe;
+  --c1:#2563eb;--c2:#f59e0b;--c3:#10b981;--c4:#ef4444;--c5:#8b5cf6;--c6:#06b6d4;
+  --bubble-me:#2563eb;--bubble-me-ink:#fff;--bubble-ed:#eef2f7;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0b121b;--card:#131d29;--ink:#e6edf5;--muted:#9aa8b8;--line:#223142;
+    --accent:#60a5fa;--accent-ink:#0b121b;--ok:#4ade80;--ok-bg:#12321f;--warn:#facc15;--warn-bg:#3a3110;
+    --bad:#f87171;--bad-bg:#3b1515;--info:#93c5fd;--info-bg:#152a47;
+    --c1:#60a5fa;--c2:#fbbf24;--c3:#34d399;--c4:#f87171;--c5:#a78bfa;--c6:#22d3ee;
+    --bubble-me:#3b82f6;--bubble-me-ink:#fff;--bubble-ed:#1c2938;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--bg);padding:14px 16px 8px;display:flex;align-items:center;justify-content:space-between}
+header h1{font-size:20px;margin:0;letter-spacing:.08em}
+header small{color:var(--muted)}
+main{padding:0 16px 96px;max-width:720px;margin:0 auto}
+section.view{display:none}section.view.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:0 0 12px}
+.card h2{font-size:15px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
+.kpi b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.kpi span{color:var(--muted);font-size:13px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:0}
+.row .t{min-width:0}.row .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .t small{color:var(--muted)}
+.amt{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
+.pill{display:inline-block;font-size:12px;padding:2px 8px;border-radius:999px}
+.p-ok{background:var(--ok-bg);color:var(--ok)}.p-warn{background:var(--warn-bg);color:var(--warn)}
+.p-bad{background:var(--bad-bg);color:var(--bad)}.p-info{background:var(--info-bg);color:var(--info)}
+button,.btn{font:inherit;border:0;border-radius:10px;padding:9px 14px;background:var(--accent);color:var(--accent-ink);font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+button.small{padding:6px 10px;font-size:13px}
+button.danger{background:var(--bad);color:#fff}
+button:disabled{opacity:.5}
+.chart{display:flex;align-items:flex-end;gap:4px;height:150px;padding-top:6px}
+.chart .col{flex:1;display:flex;flex-direction:column-reverse;height:100%;position:relative}
+.chart .seg{width:100%;border-radius:3px 3px 0 0}
+.chart .lab{position:absolute;bottom:-18px;width:100%;text-align:center;font-size:10px;color:var(--muted)}
+.chart-wrap{padding-bottom:20px}
+.legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:12px;color:var(--muted);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.hbar{margin:8px 0}.hbar .top{display:flex;justify-content:space-between;font-size:13px}
+.hbar .track{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:4px}
+.hbar .fill{height:100%;border-radius:6px}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px}
+.chip{flex:none;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:500}
+.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;background:transparent;color:var(--muted);border-radius:0;padding:10px 0 12px;font-size:12px;font-weight:500}
+nav button span{display:block;font-size:20px}
+nav button.on{color:var(--accent)}
+.meter{height:10px;background:var(--line);border-radius:6px;overflow:hidden;margin:6px 0}
+.meter div{height:100%;background:var(--accent)}
+select{font:inherit;padding:6px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);max-width:170px}
+input[type=checkbox]{width:20px;height:20px}
+.muted{color:var(--muted)}.center{text-align:center}
+a{color:var(--accent)}
+/* chat */
+#lock{text-align:center;padding:40px 10px}
+#lock .orb{width:96px;height:96px;border-radius:50%;margin:0 auto 18px;background:radial-gradient(circle at 35% 35%,#93c5fd,#2563eb 60%,#1e3a8a);box-shadow:0 0 40px rgba(37,99,235,.45)}
+#setup{display:none;position:fixed;inset:0;z-index:40;background:var(--bg);padding:calc(24px + env(safe-area-inset-top)) 16px 24px;overflow:auto}
+#setup .box{max-width:460px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
+#setup img{width:88px;height:88px;border-radius:22px;align-self:center;margin-bottom:6px}
+#setup label{font-size:13px;color:var(--muted)}
+#setup input{font:inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);width:100%}
+#setup .err{color:var(--bad);font-size:14px;min-height:20px}
+.mic-on{background:var(--bad)!important;color:#fff!important;border-color:var(--bad)!important}
+.auto-on{background:var(--accent)!important;color:var(--accent-ink)!important;border-color:var(--accent)!important}
+.b.prov{opacity:.6;font-style:italic}
+#chat{display:none;flex-direction:column;height:calc(100vh - 190px)}
+#msgs{flex:1;overflow-y:auto;padding:4px 0}
+.b{max-width:85%;padding:9px 12px;border-radius:16px;margin:6px 0;white-space:pre-wrap;word-wrap:break-word}
+.b.me{margin-left:auto;background:var(--bubble-me);color:var(--bubble-me-ink);border-bottom-right-radius:4px}
+.b.ed{background:var(--bubble-ed);border-bottom-left-radius:4px}
+.b.ed small{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+.ask{display:flex;gap:8px;padding-top:8px}
+.ask input{flex:1;font:inherit;padding:11px 12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);min-width:0}
+.icon{padding:9px 12px}
+#toast{position:fixed;left:50%;bottom:86px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 14px;border-radius:10px;font-size:14px;display:none;max-width:90%;z-index:20}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-end;justify-content:center;z-index:30}
+.modal .sheet{background:var(--card);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
+.modal pre{white-space:pre-wrap;font:inherit;color:var(--muted);max-height:40vh;overflow:auto}
+.actions{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:s 1s linear infinite;vertical-align:-2px}
+@keyframes s{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>EDITH</h1><small id="sub">caricamento…</small></div>
+  <div><button class="ghost small" id="btnElabora" onclick="elabora()">↻ Controlla posta</button>
+  <button class="ghost small" id="btnVeglia" onclick="toggleVeglia()" title="Sempre in ascolto: di' &quot;Edith, sono io&quot;">👂</button>
+  <button class="ghost small" id="btnCfg" onclick="mostraSetup(true)" title="Impostazioni" style="display:none">⚙︎</button></div>
+</header>
+<div id="setup"><div class="box">
+  <img src="icon-192.png" alt="">
+  <div id="cfgConn" style="display:flex;flex-direction:column;gap:10px">
+  <h2 style="margin:0">Collega EDITH</h2>
+  <p class="muted" style="margin:0">Serve una volta sola: l'URL del deployment Voce (finisce con <b>/exec</b>) e il token creato da <b>creaTokenVoce</b>. Restano salvati solo su questo telefono.</p>
+  <label for="cfgU">URL del deployment</label><input id="cfgU" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+  <label for="cfgK">Token</label><input id="cfgK" type="password" autocomplete="off">
+  <div class="err" id="cfgErr"></div>
+  <button onclick="salvaSetup()">Collega</button>
+  </div>
+  <h3 style="margin:18px 0 0">Calibra "Edith, sono io"</h3>
+  <p class="muted" style="margin:0;font-size:13px">Ripeti la frase 5 volte con il tuo tono normale: EDITH impara come la trascrive il tuo telefono e da quel momento parte solo con quella.</p>
+  <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap">
+    <button style="flex:1" onclick="calibra()">🎙 Calibra</button>
+    <button class="ghost" style="flex:1" onclick="provaParola()">Prova</button>
+    <button class="ghost" style="flex:1" onclick="azzeraFrasi()">Azzera</button></div>
+  <div id="calStato" style="font-weight:600;min-height:22px"></div>
+  <div id="calFrasi" class="muted" style="font-size:13px"></div>
+  <h3 style="margin:18px 0 0">Voce di Edith</h3>
+  <p class="muted" style="margin:0;font-size:13px">Le voci migliori sono quelle "Premium", "Avanzata" o "Google". Se senti solo voci robotiche, scarica una voce italiana di qualità dalle impostazioni del telefono (vedi la guida).</p>
+  <select id="cfgVoce" onchange="mem('voce_nome', this.value)" style="font:inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink)"></select>
+  <div class="actions" style="display:flex;gap:8px"><button class="ghost" style="flex:1" onclick="S.voce=true;parla('Ciao Theodore, sono Edith. Hai un pagamento in sospeso: l\'assicurazione auto, 779 euro, scade il 30 dicembre.')">▶ Prova la voce</button>
+  <button class="ghost" style="flex:1" id="cfgChiudi" onclick="mostraSetup(false)">Chiudi</button></div>
+</div></div>
+<main>
+  <!-- HOME -->
+  <section class="view on" id="v-home">
+    <div class="kpis" id="kpis"></div>
+    <div class="card"><h2>Da pagare <span class="muted" id="apertiTot"></span></h2><div id="aperte"></div></div>
+    <div class="card"><h2 id="tMesi">Bollette per mese</h2><div class="chart-wrap"><div class="chart" id="chart"></div></div><div class="legend" id="legend"></div></div>
+    <div class="card"><h2>Ripartizione bollette</h2><div id="perTipo"></div></div>
+    <div class="card"><h2>Assicurazioni per ramo</h2><div id="perRamo"></div></div>
+  </section>
+
+  <!-- PRATICHE -->
+  <section class="view" id="v-pratiche">
+    <div class="chips" id="filtri"></div>
+    <div class="card" id="lista"></div>
+  </section>
+
+  <!-- POSTA -->
+  <section class="view" id="v-posta">
+    <div class="card"><h2>Spazio Google</h2><div id="spazio" class="muted">—</div></div>
+    <div class="card"><h2>Iscrizioni <button class="ghost small" onclick="analizzaIscr()">Analizza</button></h2>
+      <div id="iscr" class="muted">Tocca "Analizza" per cercare le newsletter.</div>
+      <div class="actions"><button class="danger small" onclick="eseguiIscr()">Esegui azioni scelte…</button></div></div>
+    <div class="card"><h2>Pulizia guidata <button class="ghost small" onclick="anteprima()">Anteprima</button></h2>
+      <div id="regole" class="muted">—</div>
+      <div class="actions"><button class="danger small" onclick="eseguiPul()">Esegui regole spuntate…</button></div></div>
+    <div class="card"><h2>Mail più pesanti <button class="ghost small" onclick="reportPes()">Aggiorna</button></h2>
+      <div id="pesantiTot" class="muted" style="margin-bottom:6px"></div>
+      <div id="pesanti" class="muted">—</div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Tutto finisce nel Cestino di Gmail: la cancellazione definitiva la fai tu quando vuoi.</p>
+      <div class="actions"><button class="danger small" onclick="cestinaPes()">Cestina selezionate…</button></div></div>
+  </section>
+
+  <!-- EDITH -->
+  <section class="view" id="v-edith">
+    <div id="lock">
+      <div class="orb"></div>
+      <p class="muted">Per parlare con me, dimmi chi sei.</p>
+      <div class="ask"><input id="pass" placeholder="Edith, sono io" autocomplete="off" onkeydown="if(event.key==='Enter')sblocca()">
+        <button class="icon ghost" id="micLock" onclick="ascolta('pass', sblocca)" title="Parla">🎙️</button>
+        <button onclick="sblocca()">Entra</button></div>
+    </div>
+    <div id="chat">
+      <div class="chips" id="sugg"></div>
+      <div id="msgs"></div>
+      <div class="ask">
+        <button class="icon ghost" id="voce" onclick="toggleVoce()" title="Voce">🔈</button>
+        <input id="q" placeholder="Chiedi a Edith…" autocomplete="off" onkeydown="if(event.key==='Enter')invia()">
+        <button class="icon ghost" id="mic" onclick="micTap()" title="Premi e parla">🎙️</button>
+        <button class="icon ghost" id="auto" onclick="toggleAuto()" title="Modalità auto: riascolta dopo ogni risposta">🚗</button>
+        <button onclick="invia()">Invia</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav>
+  <button class="on" data-v="home" onclick="vai('home')"><span>🏠</span>Home</button>
+  <button data-v="pratiche" onclick="vai('pratiche')"><span>📄</span>Pratiche</button>
+  <button data-v="posta" onclick="vai('posta')"><span>✉️</span>Posta</button>
+  <button data-v="edith" onclick="vai('edith')"><span>✨</span>Edith</button>
+</nav>
+
+<div id="toast"></div>
+<div class="modal" id="modal"><div class="sheet"><h3 id="mT"></h3><pre id="mB"></pre>
+  <div class="actions"><button class="ghost" onclick="chiudiModal()">Annulla</button><button class="danger" id="mOk">Conferma</button></div></div></div>
+
+<script>
+const S = { dati: null, filtro: 'Tutte', storia: [], voce: false, posta: null, iscr: null };
+const COL = ['--c1','--c2','--c3','--c4','--c5','--c6'].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+const MESI = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+const $ = id => document.getElementById(id);
+const eur = n => n === null || n === undefined ? '—' : '€ ' + Number(n).toLocaleString('it-IT', {minimumFractionDigits:2, maximumFractionDigits:2});
+const dt = s => s ? s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4) : '—';
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function store(k, v){ try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch(e) { return null; } }
+
+// Dentro Apps Script usa google.script.run; sulla pagina GitHub chiama lo script via /exec con il token.
+const GAS = !!(window.google && google.script && google.script.run);
+function mem(k, v){ try { if (v === undefined) return localStorage.getItem('edith_' + k); if (v === null) localStorage.removeItem('edith_' + k); else localStorage.setItem('edith_' + k, v); } catch(e) { return null; } }
+async function remoto(fn, args){
+  let res;
+  try { res = await fetch(mem('url'), { method: 'POST', body: JSON.stringify({ k: mem('k'), f: fn, a: args }) }); }
+  catch (e) { throw new Error(navigator.onLine ? 'lo script non risponde: controlla URL, accesso "Chiunque" e versione del deployment' : 'sei offline'); }
+  let j; try { j = JSON.parse(await res.text()); }
+  catch (e) { throw new Error('il deployment non è accessibile a tutti: impostalo su "Chiunque"'); }
+  if (!j.ok) { if (/token/i.test(j.errore || '')) mostraSetup(true, 'Il token non è valido.'); throw new Error(j.errore || 'errore'); }
+  return j.r;
+}
+function call(fn, ...args){
+  if (!GAS) return remoto(fn, args).catch(e => { toast('Errore: ' + e.message); throw e; });
+  return new Promise((ok, ko) => google.script.run.withSuccessHandler(ok).withFailureHandler(e => { toast('Errore: ' + (e && e.message || e)); ko(e); })[fn](...args));
+}
+function mostraSetup(si, err){
+  $('setup').style.display = si ? 'block' : 'none';
+  $('cfgU').value = mem('url') || ''; $('cfgK').value = mem('k') || ''; $('cfgErr').textContent = err || '';
+  $('cfgConn').style.display = GAS ? 'none' : 'flex';
+  $('cfgChiudi').style.display = GAS || (mem('url') && mem('k')) ? '' : 'none';
+  if (si) { riempiVoci(); mostraFrasi(); $('calStato').textContent = ''; }
+}
+async function salvaSetup(){
+  const u = $('cfgU').value.trim(), k = $('cfgK').value.trim();
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u)) { $('cfgErr').textContent = 'L\'URL deve iniziare con https://script.google.com/macros/s/ e finire con /exec.'; return; }
+  if (k.length < 20) { $('cfgErr').textContent = 'Il token sembra troppo corto.'; return; }
+  mem('url', u); mem('k', k);
+  try { render(await remoto('apiDati', [])); mostraSetup(false); }
+  catch (e) { $('cfgErr').textContent = 'Non riesco a collegarmi: ' + e.message + '.'; }
+}
+function toast(t){ const el = $('toast'); el.textContent = t; el.style.display = 'block'; clearTimeout(el._t); el._t = setTimeout(() => el.style.display = 'none', 3500); }
+function conferma(titolo, testo){
+  return new Promise(ok => {
+    $('mT').textContent = titolo; $('mB').textContent = testo; $('modal').style.display = 'flex';
+    $('mOk').onclick = () => { chiudiModal(); ok(true); };
+    $('modal')._no = () => ok(false);
+  });
+}
+function chiudiModal(){ $('modal').style.display = 'none'; if ($('modal')._no) { const f = $('modal')._no; $('modal')._no = null; f(); } }
+
+function vai(v){
+  document.querySelectorAll('section.view').forEach(s => s.classList.toggle('on', s.id === 'v-' + v));
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+  if (v === 'posta' && !S.posta) caricaPosta();
+  if (v === 'edith' && store('edith_ok') === '1') apriChat();
+  store('edith_view', v);
+}
+
+function pillStato(s){
+  const m = {'Conclusa':'p-ok','Da pagare':'p-warn','Scaduta':'p-bad','Da verificare':'p-info'};
+  return '<span class="pill ' + (m[s] || 'p-info') + '">' + esc(s || '—') + '</span>';
+}
+
+// ------------------------------------------------ HOME
+function render(d, daCache){
+  S.dati = d;
+  const quando = daCache ? new Date(Number(mem('cache_t') || Date.now())) : new Date();
+  const ora = quando.toLocaleTimeString('it-IT', {hour:'2-digit', minute:'2-digit'});
+  $('sub').textContent = 'Anno ' + d.anno + ' · ' + (daCache ? 'dati delle ' + ora + (quando.toDateString() !== new Date().toDateString() ? ' del ' + quando.toLocaleDateString('it-IT') : '') + ', aggiorno…' : 'aggiornato ' + ora);
+  // ultimi dati salvati sul telefono: l'app si apre subito e funziona anche senza rete
+  if (!daCache) { mem('cache', JSON.stringify(d)); mem('cache_t', String(Date.now())); }
+  $('kpis').innerHTML = [
+    ['Bollette ' + d.anno, eur(d.kpi.bollette)], ['Media mensile', eur(d.kpi.media)],
+    ['Assicurazioni ' + d.anno, eur(d.kpi.assicurazioni)], ['Da pagare', d.kpi.aperte + ' · ' + eur(d.kpi.apertiTot)],
+  ].map(([l, v]) => '<div class="kpi"><span>' + l + '</span><b>' + v + '</b></div>').join('');
+
+  const ap = d.aperte;
+  $('apertiTot').textContent = ap.length ? '' : '';
+  $('aperte').innerHTML = ap.length ? ap.map(p =>
+    '<div class="row"><div class="t"><b>' + esc(p.tipo) + ' · ' + esc(p.chi) + '</b><small>Scadenza ' + dt(p.scadenza) + ' ' + pillStato(p.stato) + '</small></div>' +
+    '<div class="center"><div class="amt">' + eur(p.importo) + '</div>' +
+    (p.stato === 'Da verificare' ? '<a href="' + esc(p.link) + '" target="_blank">apri mail</a>'
+      : '<button class="small" onclick="pagata(\'' + esc(p.foglio) + '\',' + p.riga + ',\'' + esc(p.tipo + ' ' + p.chi).replace(/'/g, '') + '\')">Pagata ✓</button>') +
+    '</div></div>').join('') : '<p class="muted">Niente da pagare. 🎉</p>';
+
+  $('tMesi').textContent = 'Bollette ' + d.anno + ' per mese';
+  const max = Math.max(1, ...d.mesi.map(m => m.totale));
+  $('chart').innerHTML = d.mesi.map(m =>
+    '<div class="col" title="' + MESI[m.mese-1] + ': ' + eur(m.totale) + '">' +
+    d.tipi.map((t, i) => m.perTipo[t] ? '<div class="seg" style="height:' + (m.perTipo[t] / max * 100) + '%;background:' + COL[i % COL.length] + '"></div>' : '').join('') +
+    '<div class="lab">' + MESI[m.mese-1] + '</div></div>').join('');
+  $('legend').innerHTML = d.tipi.map((t, i) => '<span><i style="background:' + COL[i % COL.length] + '"></i>' + esc(t) + '</span>').join('') || '<span>Nessuna bolletta quest\'anno</span>';
+  $('perTipo').innerHTML = barre(d.perTipo);
+  $('perRamo').innerHTML = barre(d.perRamo);
+  renderLista();
+}
+function barre(lista){
+  if (!lista.length) return '<p class="muted">Nessun dato per quest\'anno.</p>';
+  const max = Math.max(...lista.map(x => x.totale), 1);
+  return lista.sort((a, b) => b.totale - a.totale).map((x, i) =>
+    '<div class="hbar"><div class="top"><span>' + esc(x.nome) + '</span><b class="amt">' + eur(x.totale) + '</b></div>' +
+    '<div class="track"><div class="fill" style="width:' + (x.totale / max * 100) + '%;background:' + COL[i % COL.length] + '"></div></div></div>').join('');
+}
+
+async function pagata(foglio, riga, nome){
+  if (!await conferma('Segnare come pagata?', nome + '\nLo stato diventa "Conclusa" e l\'attività in Calendar viene spuntata.')) return;
+  render(await call('apiSegnaPagata', foglio, riga));
+  toast('Segnata come pagata ✓');
+}
+async function elabora(){
+  const b = $('btnElabora'); b.disabled = true; b.innerHTML = '<span class="spin"></span> Controllo…';
+  try {
+    const r = await call('apiElabora');
+    render(r.dati);
+    toast(r.log.length ? r.log[r.log.length - 1] : 'Nessuna novità nella posta');
+  } finally { b.disabled = false; b.textContent = '↻ Controlla posta'; }
+}
+
+// ------------------------------------------------ PRATICHE
+function renderLista(){
+  const filtri = ['Tutte', 'Bollette', 'Assicurazioni', 'Da pagare', 'Da verificare'];
+  $('filtri').innerHTML = filtri.map(f => '<button class="chip' + (S.filtro === f ? ' on' : '') + '" onclick="S.filtro=\'' + f + '\';renderLista()">' + f + '</button>').join('');
+  const P = (S.dati ? S.dati.pratiche : []).filter(p =>
+    S.filtro === 'Tutte' || (S.filtro === 'Bollette' && p.area === 'bollette') || (S.filtro === 'Assicurazioni' && p.area === 'assicurazioni') ||
+    (S.filtro === 'Da pagare' && (p.stato === 'Da pagare' || p.stato === 'Scaduta')) || (S.filtro === 'Da verificare' && p.stato === 'Da verificare'));
+  $('lista').innerHTML = P.length ? P.map(p =>
+    '<div class="row"><div class="t"><b>' + (p.area === 'assicurazioni' ? '🛡️ ' : '💡 ') + esc(p.tipo) + ' · ' + esc(p.chi) + '</b>' +
+    '<small>' + (p.emissione ? 'Emessa ' + dt(p.emissione) + ' · ' : '') + 'Scad. ' + dt(p.scadenza) + ' ' + pillStato(p.stato) +
+    (p.link ? ' · <a href="' + esc(p.link) + '" target="_blank">mail</a>' : '') + '</small></div>' +
+    '<div class="amt">' + eur(p.importo) + '</div></div>').join('') : '<p class="muted">Nessuna pratica.</p>';
+}
+
+// ------------------------------------------------ POSTA
+async function caricaPosta(){
+  const [p, i] = await Promise.all([call('apiPulizia'), call('apiIscrizioni')]);
+  S.posta = p; S.iscr = i; renderPosta();
+}
+function renderPosta(){
+  const s = S.posta && S.posta.spazio;
+  $('spazio').innerHTML = s ? '<div class="meter"><div style="width:' + Math.min(100, s.usato / s.limite * 100) + '%"></div></div>' +
+    '<b>' + s.usato + ' GB</b> usati su ' + s.limite + ' GB · Gmail e Foto ' + s.altro + ' GB · Drive ' + s.drive + ' GB' : 'Non disponibile';
+
+  const I = S.iscr ? S.iscr.righe : [];
+  $('iscr').innerHTML = I.length ? I.slice(0, 80).map(r =>
+    '<div class="row"><div class="t"><b>' + esc(r['MITTENTE']) + '</b><small>' + r['N. MAIL'] + ' mail · ' + r['MB STIMATI'] + ' MB · ' + esc(r['METODO']) +
+    (r['ESITO'] ? '<br>' + esc(r['ESITO']) : '') + (/Manuale/.test(r['METODO']) && r['LINK DISISCRIZIONE'] ? ' · <a href="' + esc(r['LINK DISISCRIZIONE']) + '" target="_blank">apri link</a>' : '') + '</small></div>' +
+    '<select onchange="call(\'apiSalvaAzione\',' + r.riga + ',this.value).then(()=>{S.iscr.righe.find(x=>x.riga==' + r.riga + ').AZIONE=this.value;toast(\'Salvato\')})">' +
+    S.iscr.azioni.map(a => '<option' + (a === r['AZIONE'] ? ' selected' : '') + '>' + esc(a) + '</option>').join('') + '</select></div>').join('')
+    : 'Nessuna iscrizione analizzata. Tocca "Analizza".';
+
+  const R = S.posta ? S.posta.regole : [];
+  $('regole').innerHTML = R.length ? R.map(r =>
+    '<div class="row"><div class="t"><b>' + esc(r['REGOLA']) + '</b><small>' + esc(r['AZIONE']) + ' · ' +
+    (r['MAIL TROVATE'] !== '' && r['MAIL TROVATE'] !== undefined ? r['MAIL TROVATE'] + ' mail, ~' + r['MB STIMATI'] + ' MB' : 'anteprima da fare') +
+    (r['ESITO'] ? '<br>' + esc(r['ESITO']) : '') + '</small></div>' +
+    '<input type="checkbox"' + (r['ESEGUI'] === true ? ' checked' : '') + ' onchange="spunta(\'PULIZIA\',' + r.riga + ',\'ESEGUI\',this.checked)"></div>').join('') : '—';
+
+  const H = S.posta ? S.posta.pesanti : [];
+  const mb = arr => arr.reduce((t, r) => t + Number(r['MB'] || 0), 0);
+  const sel = H.filter(r => r['CESTINA'] === true);
+  const gb = x => x >= 1024 ? (x / 1024).toFixed(2).replace('.', ',') + ' GB' : Math.round(x) + ' MB';
+  $('pesantiTot').innerHTML = H.length ? '<b>' + gb(mb(H)) + '</b> in ' + H.length + ' mail · selezionate: <b>' + sel.length + '</b> (' + gb(mb(sel)) + ')' +
+    ' <button class="ghost small" onclick="selTutte(' + (sel.length < H.length) + ')">' + (sel.length < H.length ? 'Seleziona tutte' : 'Deseleziona') + '</button>' : '';
+  $('pesanti').innerHTML = H.length ? H.map(r =>
+    '<div class="row"><div class="t"><b>' + esc(r['OGGETTO']) + '</b><small>' + esc(String(r['MITTENTE']).replace(/<.*>/, '')) + ' · ' + dt(r['DATA']) +
+    ' · <a href="' + esc(r['LINK']) + '" target="_blank">apri</a></small></div><div class="amt">' + r['MB'] + ' MB</div>' +
+    '<input type="checkbox"' + (r['CESTINA'] === true ? ' checked' : '') + ' onchange="spunta(\'MAIL PESANTI\',' + r.riga + ',\'CESTINA\',this.checked)"></div>').join('')
+    : 'Tocca "Aggiorna" per elencare le mail oltre 5 MB.';
+}
+async function selTutte(v){
+  const H = S.posta ? S.posta.pesanti : [];
+  await call('apiSpuntaTutte', 'MAIL PESANTI', 'CESTINA', v);
+  H.forEach(r => { r['CESTINA'] = v; });
+  renderPosta();
+}
+function spunta(foglio, riga, col, val){
+  call('apiSpunta', foglio, riga, col, val).then(() => {
+    const lista = foglio === 'PULIZIA' ? S.posta.regole : S.posta.pesanti;
+    const r = lista.find(x => x.riga === riga); if (r) r[col] = val;
+    if (foglio !== 'PULIZIA') renderPosta();
+  });
+}
+async function lento(btnTesto, fn, ...args){ toast(btnTesto + '… può richiedere qualche minuto'); return call(fn, ...args); }
+async function analizzaIscr(){ S.iscr = await lento('Analizzo le newsletter', 'apiAnalizzaIscrizioni'); renderPosta(); toast('Fatto'); }
+async function anteprima(){ S.posta = await lento('Calcolo l\'anteprima', 'apiAnteprimaPulizia'); renderPosta(); toast('Anteprima pronta'); }
+async function reportPes(){ S.posta = await lento('Cerco le mail pesanti', 'apiReportPesanti'); renderPosta(); toast('Fatto'); }
+async function eseguiIscr(){
+  const sc = (S.iscr ? S.iscr.righe : []).filter(r => r['AZIONE'] && r['AZIONE'] !== 'Tieni' && !/^OK/.test(String(r['ESITO'])));
+  if (!sc.length) return toast('Scegli prima un\'azione diversa da "Tieni"');
+  const n = sc.filter(r => /cestina/i.test(r['AZIONE'])).reduce((s, r) => s + Number(r['N. MAIL'] || 0), 0);
+  if (!await conferma('Eseguire ' + sc.length + ' azioni?', sc.map(r => '• ' + r['EMAIL'] + ' → ' + r['AZIONE']).join('\n') +
+    '\n\nCirca ' + n + ' mail finiranno nel Cestino (recuperabili per 30 giorni).')) return;
+  S.iscr = await lento('Eseguo', 'apiEseguiIscrizioni'); renderPosta(); toast('Azioni eseguite');
+}
+async function eseguiPul(){
+  const sc = (S.posta ? S.posta.regole : []).filter(r => r['ESEGUI'] === true);
+  if (!sc.length) return toast('Spunta prima le regole da applicare');
+  if (!await conferma('Applicare ' + sc.length + ' regole?', sc.map(r => '• ' + r['REGOLA'] + ' → ' + r['AZIONE'] + ' (' + (r['MAIL TROVATE'] || '?') + ' mail)').join('\n') +
+    '\n\nStelle, importanti, bollette e assicurazioni sono escluse. Il Cestino si svuota da solo dopo 30 giorni.')) return;
+  S.posta = await lento('Pulisco', 'apiEseguiPulizia'); renderPosta(); toast('Pulizia eseguita');
+}
+async function cestinaPes(){
+  const sc = (S.posta ? S.posta.pesanti : []).filter(r => r['CESTINA'] === true);
+  if (!sc.length) return toast('Spunta prima le mail da cestinare');
+  const mb = sc.reduce((s, r) => s + Number(r['MB'] || 0), 0).toFixed(1);
+  if (!await conferma('Cestinare ' + sc.length + ' mail?', 'Liberi circa ' + mb + ' MB quando il Cestino si svuota (dopo 30 giorni, o subito se lo svuoti tu).')) return;
+  S.posta = await lento('Sposto nel Cestino', 'apiCestinaPesanti'); renderPosta(); toast('Fatto');
+}
+
+// ------------------------------------------------ EDITH
+const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+// "Edith, sono io" anche se la dettatura scrive "Edit", "Eddie", "Edi"…
+// Parola d'ordine: deve somigliare davvero a "Edith, sono io" (o a come il tuo telefono la trascrive,
+// imparato con la calibrazione). "Edith" da solo, "sono io" da solo o frasi lunghe non bastano.
+const FRASI_BASE = ['edith sono io', 'edit sono io', 'eddie sono io', 'edi sono io', 'eddy sono io'];
+function frasiImparate(){ try { const f = JSON.parse(mem('frasi') || '[]'); return Array.isArray(f) ? f : []; } catch(e) { return []; } }
+function lev(a, b){
+  const d = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) { let prev = d[0]; d[0] = i;
+    for (let j = 1; j <= b.length; j++) { const t = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = t; } }
+  return d[b.length];
+}
+const simil = (a, b) => 1 - lev(a, b) / Math.max(a.length, b.length, 1);
+function eParolaOrdine(t){
+  const w = String(t || '').split(' ').filter(Boolean);
+  if (!w.length || w.length > 7) return false;           // la parola d'ordine si dice da sola, non dentro un discorso
+  const prova = (f, soglia) => { const k = f.split(' ').length;
+    for (let len = Math.max(1, k - 1); len <= k + 1; len++)
+      for (let i = 0; i + len <= w.length; i++) if (simil(w.slice(i, i + len).join(' '), f) >= soglia) return true;
+    return false; };
+  return FRASI_BASE.some(f => prova(f, 0.8)) || frasiImparate().some(f => prova(f, 0.86));
+}
+
+// ------------------------------------------------ calibrazione della parola d'ordine
+async function ascoltaUnaVolta(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) throw new Error('riconoscimento vocale non disponibile');
+  if (recV) { try { recV.abort(); } catch(e) {} recV = null; }
+  return new Promise((ok, ko) => {
+    const r = new SR(); r.lang = 'it-IT'; r.interimResults = false; r.maxAlternatives = 5;
+    let alt = [], err = '';
+    r.onresult = e => { for (let i = 0; i < e.results.length; i++) for (let j = 0; j < e.results[i].length; j++) alt.push(norm(e.results[i][j].transcript)); };
+    r.onerror = e => { err = e.error; };
+    r.onend = () => err && err !== 'no-speech' ? ko(new Error(err)) : ok(alt.filter(Boolean));
+    r.start();
+  });
+}
+async function calibra(){
+  const st = $('calStato'), giri = 5, nuove = [];
+  S.calibro = true;
+  try {
+    for (let g = 1; g <= giri; g++) {
+      st.textContent = 'Di\' "Edith, sono io" (' + g + ' di ' + giri + ')…';
+      const alt = await ascoltaUnaVolta();
+      if (!alt.length) { st.textContent = 'Non ti ho sentito, riprova.'; g--; await new Promise(r => setTimeout(r, 900)); continue; }
+      // tiene solo trascrizioni corte e plausibili, al massimo le prime 3 interpretazioni
+      alt.slice(0, 3).forEach(a => { if (a.split(' ').length <= 5 && a.length >= 4 && nuove.indexOf(a) === -1) nuove.push(a); });
+      st.textContent = 'Ho sentito: "' + alt[0] + '"';
+      await new Promise(r => setTimeout(r, 900));
+    }
+    const tutte = frasiImparate().concat(nuove).filter((x, i, a) => a.indexOf(x) === i).slice(-20);
+    mem('frasi', JSON.stringify(tutte));
+    st.textContent = 'Calibrazione fatta: ho imparato ' + tutte.length + ' modi in cui il telefono scrive la tua frase.';
+    mostraFrasi();
+  } catch(e) { st.textContent = 'Non riesco ad ascoltare (' + e.message + ').'; }
+  S.calibro = false;
+  if (S.veglia) veglia();
+}
+async function provaParola(){
+  const st = $('calStato'); S.calibro = true;
+  try {
+    st.textContent = 'Di\' qualcosa: la frase giusta o una qualsiasi…';
+    const alt = await ascoltaUnaVolta();
+    const ok = alt.some(eParolaOrdine);
+    st.textContent = (alt[0] ? '"' + alt[0] + '": ' : '') + (ok ? '✅ riconosciuta, partirei.' : '❌ non partirei.');
+  } catch(e) { st.textContent = 'Non riesco ad ascoltare (' + e.message + ').'; }
+  S.calibro = false;
+  if (S.veglia) veglia();
+}
+function azzeraFrasi(){ mem('frasi', null); mostraFrasi(); $('calStato').textContent = 'Calibrazione azzerata.'; }
+function mostraFrasi(){ const f = frasiImparate(); $('calFrasi').textContent = f.length ? 'Varianti imparate: ' + f.join(' · ') : 'Nessuna variante imparata: uso solo "Edith, sono io" e simili.'; }
+function sblocca(){
+  if (!eParolaOrdine(norm($('pass').value))) { toast('Non ti riconosco… scrivi o detta "Edith, sono io"'); return; }
+  store('edith_ok', '1'); apriChat(true);
+}
+function apriChat(saluta){
+  $('lock').style.display = 'none'; $('chat').style.display = 'flex';
+  $('sugg').innerHTML = ['Cosa devo pagare?', 'Quanto ho speso quest\'anno?', 'Spesa luce', 'Le assicurazioni', 'Quanto spazio ho?', 'Controlla la posta']
+    .map(s => '<button class="chip" onclick="$(\'q\').value=this.textContent;invia()">' + esc(s) + '</button>').join('');
+  if (saluta || !$('msgs').children.length) chiedi('Edith, sono io', true);
+}
+function bolla(chi, testo, fonte){
+  const d = document.createElement('div'); d.className = 'b ' + chi;
+  d.textContent = testo;
+  $('msgs').appendChild(d); $('msgs').scrollTop = $('msgs').scrollHeight; return d;
+}
+function invia(){ const q = $('q').value.trim(); if (!q) return; $('q').value = ''; chiedi(q); }
+const SI = /^(si|sì|certo|conferma|confermo|vai|ok|okay|esatto|procedi|fallo)(?=[\s.,!]|$)/i;
+const NO = /^(no|annulla|lascia stare|non ancora|aspetta)(?=[\s.,!]|$)/i;
+async function chiedi(q, silenzioso){
+  if (!silenzioso) bolla('me', q);
+  if (S.attesa) {
+    const az = S.attesa, t = q.trim().toLowerCase();
+    if (SI.test(t)) return az.si();
+    if (NO.test(t)) return az.no();
+    az.chiudi();
+  }
+  const att = bolla('ed', '…');
+  try {
+    const r = await call('apiChiedi', q, S.storia.slice(-8));
+    att.remove(); const bb = bolla('ed', r.testo, r.fonte);
+    if (r.azione && r.azione.tipo === 'pagata') {
+      const box = document.createElement('div'); box.className = 'actions';
+      const no = document.createElement('button'); no.className = 'ghost small'; no.textContent = 'No';
+      const si = document.createElement('button'); si.className = 'small'; si.textContent = 'Sì, segna pagata';
+      const az = { chiudi: () => { box.remove(); S.attesa = null; } };
+      az.no = () => { az.chiudi(); rispondi('Va bene, lascio tutto com\'è.'); };
+      az.si = async () => { az.chiudi(); try { render(await call('apiSegnaPagata', r.azione.foglio, r.azione.riga)); rispondi('Fatto: ' + r.azione.nome + ' è segnata come pagata e l\'attività in Calendar è spuntata.'); } catch(e) { rispondi('Non sono riuscita a segnarla.'); } };
+      no.onclick = () => { bolla('me', 'No'); az.no(); };
+      si.onclick = () => { bolla('me', 'Sì'); az.si(); };
+      box.append(no, si); bb.appendChild(box); S.attesa = az;
+    }
+    S.storia.push({ruolo:'io', testo:q}, {ruolo:'edith', testo:r.testo});
+    if (r.fine) setAuto(false);
+    parla(r.testo, dopoRisposta);
+    if (!S.voce && !S.auto && !silenzioso) $('q').focus();
+    if (r.aggiorna) call('apiDati').then(render);
+  } catch(e) { att.textContent = 'Scusa, qualcosa è andato storto.'; dopoRisposta(); }
+}
+function rispondi(t){ bolla('ed', t); S.storia.push({ruolo:'edith', testo:t}); parla(t, dopoRisposta); }
+function dopoRisposta(){ if (S.auto) setTimeout(() => ascolta('q', invia), 250); }
+function toggleVoce(){ S.voce = !S.voce; $('voce').textContent = S.voce ? '🔊' : '🔈'; store('edith_voce', S.voce ? '1' : '0'); if (!S.voce) try { speechSynthesis.cancel(); } catch(e){} }
+// Sceglie la voce italiana più naturale disponibile sul telefono (nessun servizio a pagamento)
+function punteggioVoce(v){
+  let p = 0; const n = v.name;
+  if (/premium|enhanced|avanzat|natural|neural|wavenet|siri/i.test(n)) p += 10;
+  if (/google/i.test(n)) p += 6;
+  if (!v.localService) p += 2;
+  if (/federica|alice|elsa|isabella|emma|bianca|carla/i.test(n)) p += 2;
+  if (/compact|espeak|eloquence|grandma|grandpa|nonna|nonno|rocko|shelley|flo|reed|sandy/i.test(n)) p -= 8;
+  return p;
+}
+function vociIt(){ try { return speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang)).sort((a, b) => punteggioVoce(b) - punteggioVoce(a)); } catch(e) { return []; } }
+function voceScelta(){ const v = vociIt(), n = mem('voce_nome'); return v.find(x => x.name === n) || v[0] || null; }
+function riempiVoci(){
+  const v = vociIt(), sel = $('cfgVoce'), scelta = voceScelta();
+  sel.innerHTML = v.length ? v.map(x => '<option' + (scelta && x.name === scelta.name ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') : '<option>Nessuna voce italiana trovata</option>';
+}
+try { speechSynthesis.onvoiceschanged = () => { if ($('setup').style.display === 'block') riempiVoci(); }; speechSynthesis.getVoices(); } catch(e) {}
+function parla(t, poi){
+  if (!S.voce || !('speechSynthesis' in window)) { if (poi) poi(); return; }
+  try {
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(t.replace(/€\s?/g, '').replace(/(\d+),(\d\d)\b/g, '$1 euro e $2'));
+    u.lang = 'it-IT'; u.rate = 1; u.pitch = 1;
+    const vv = voceScelta(); if (vv) u.voice = vv;
+    let fatto = false; const fine = () => { if (!fatto) { fatto = true; if (poi) poi(); } };
+    u.onend = fine; u.onerror = fine; speechSynthesis.speak(u);
+    setTimeout(() => { if (!speechSynthesis.speaking) fine(); }, 20000);
+  } catch(e) { if (poi) poi(); }
+}
+function dettatura(campo, motivo, bloccato){
+  // Ripiego sempre funzionante: apro la tastiera, si detta con il microfono della tastiera
+  const el = $(campo); el.focus();
+  el.placeholder = '🎙️ Tocca il microfono della tastiera e parla';
+  toast(motivo + ' Usa il microfono della tastiera: Edith risponde appena premi Invio.');
+  if (bloccato) store('edith_mic', 'no');
+}
+let rec = null;
+function ascolta(campo, poi){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR || store('edith_mic') === 'no') { setAuto(false); return dettatura(campo, SR ? '' : 'Questo browser non ha il riconoscimento vocale.', !SR); }
+  if (rec) return;
+  if (recV) { try { recV.abort(); } catch(e) {} recV = null; }
+  try { speechSynthesis.cancel(); } catch(e) {}
+  const btn = campo === 'q' ? $('mic') : $('micLock');
+  let finale = '', prov = null, errore = '';
+  try {
+    rec = new SR(); rec.lang = 'it-IT'; rec.interimResults = true; rec.maxAlternatives = campo === 'pass' ? 5 : 1;
+    rec.onstart = () => { btn.classList.add('mic-on'); btn.textContent = '■'; };
+    rec.onresult = e => {
+      let parz = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (!r.isFinal) { parz += r[0].transcript; continue; }
+        let alt = r[0].transcript;
+        if (campo === 'pass') for (let j = 0; j < r.length; j++) if (eParolaOrdine(norm(r[j].transcript))) { alt = r[j].transcript; break; }
+        finale += alt;
+      }
+      $(campo).value = (finale + ' ' + parz).trim();
+    };
+    rec.onerror = e => { errore = e.error; };
+    rec.onend = () => {
+      rec = null; btn.classList.remove('mic-on'); btn.textContent = '🎙️';
+      const blocco = errore === 'not-allowed' || errore === 'service-not-allowed' || errore === 'audio-capture';
+      if (blocco) { setAuto(false); return dettatura(campo, GAS ? 'Google non concede il microfono a questa pagina.' : 'Il microfono è bloccato: consentilo nelle impostazioni del browser.', GAS); }
+      if (finale.trim()) { S.silenzi = 0; $(campo).value = finale.trim(); poi(); }
+      else if (S.auto && ++S.silenzi < 3) setTimeout(() => ascolta(campo, poi), 300);
+      else if (S.auto) { setAuto(false); toast('Non ti sento più: modalità auto in pausa'); }
+    };
+    rec.start();
+  } catch(e) { rec = null; dettatura(campo, 'Microfono non disponibile.', true); }
+}
+function micTap(){ if (rec) { S.silenzi = 9; try { rec.stop(); } catch(e) {} return; } S.silenzi = 0; ascolta('q', invia); }
+function setAuto(v){
+  const era = S.auto; S.auto = v; $('auto').classList.toggle('auto-on', v); schermoAcceso();
+  // finita la conversazione, se "sempre in ascolto" è attivo torna ad aspettare "Edith, sono io"
+  if (era && !v && S.veglia) setTimeout(veglia, 800);
+}
+
+// ------------------------------------------------ sempre in ascolto ("Edith, sono io" senza toccare nulla)
+let recV = null, wl = null;
+async function schermoAcceso(){
+  const serve = S.veglia || S.auto;
+  try {
+    if (serve && !wl && navigator.wakeLock) { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => { wl = null; }); }
+    if (!serve && wl) { wl.release(); wl = null; }
+  } catch(e) {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { schermoAcceso(); if (S.veglia && !S.auto && !rec) veglia(); }
+});
+function toggleVeglia(){
+  S.veglia = !S.veglia; mem('veglia', S.veglia ? '1' : null);
+  $('btnVeglia').classList.toggle('auto-on', S.veglia); schermoAcceso();
+  if (S.veglia) { toast('Ti ascolto: di\' "Edith, sono io". Funziona con l\'app aperta e lo schermo acceso.'); veglia(); }
+  else if (recV) { try { recV.abort(); } catch(e) {} recV = null; }
+}
+function veglia(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR || !S.veglia || S.auto || S.calibro || rec || recV || document.visibilityState !== 'visible') return;
+  let svegliata = false, bloccato = false;
+  try {
+    recV = new SR(); recV.lang = 'it-IT'; recV.continuous = true; recV.interimResults = true; recV.maxAlternatives = 5;
+    recV.onresult = e => {
+      for (let i = e.resultIndex; i < e.results.length && !svegliata; i++) {
+        if (!e.results[i].isFinal) continue;   // decide solo sulla frase completa, non sui pezzi
+        for (let j = 0; j < e.results[i].length; j++)
+          if (eParolaOrdine(norm(e.results[i][j].transcript))) { svegliata = true; break; }
+      }
+      if (svegliata) try { recV.abort(); } catch(err) {}
+    };
+    recV.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') bloccato = true; };
+    recV.onend = () => {
+      recV = null;
+      if (bloccato) { S.veglia = false; $('btnVeglia').classList.remove('auto-on'); toast('Il microfono è bloccato: consentilo nelle impostazioni del browser.'); return; }
+      if (svegliata) return sveglia();
+      if (S.veglia && !S.auto) setTimeout(veglia, 300);
+    };
+    recV.start();
+  } catch(e) { recV = null; if (S.veglia) setTimeout(veglia, 1500); }
+}
+function sveglia(){
+  bolla('me', 'Edith, sono io');   // prima la bolla, così apriChat non saluta due volte
+  store('edith_ok', '1'); vai('edith'); apriChat(false);
+  if (!S.voce) toggleVoce();
+  setAuto(true); S.silenzi = 0;
+  chiedi('Edith, sono io', true);
+}
+function toggleAuto(){
+  setAuto(!S.auto);
+  if (S.auto) { if (!S.voce) toggleVoce(); toast('Modalità auto: parla pure, di\' "basta" per smettere'); S.silenzi = 0; ascolta('q', invia); }
+  else if (rec) { try { rec.stop(); } catch(e) {} }
+}
+
+// ------------------------------------------------ avvio
+S.auto = false; S.silenzi = 0; S.attesa = null;
+(function avvio(){
+  $('btnCfg').style.display = '';
+  const v = store('edith_voce'); S.voce = v === null ? !GAS : v === '1'; $('voce').textContent = S.voce ? '🔊' : '🔈';
+  if (!GAS) {
+    if (location.hash.length > 2) {
+      const h = new URLSearchParams(location.hash.slice(1));
+      if (h.get('u')) mem('url', h.get('u')); if (h.get('k')) mem('k', h.get('k'));
+      try { history.replaceState(null, '', location.pathname + location.search); } catch(e) {}
+    }
+    if (!mem('url') || !mem('k')) { mostraSetup(true); return; }
+  }
+  const daScorciatoia = /[?&]ascolta=1\b/.test(location.search);
+  try { const c = JSON.parse(mem('cache') || 'null'); if (c && c.kpi) render(c, true); } catch(e) {}
+  if (!GAS && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  S.veglia = mem('veglia') === '1'; $('btnVeglia').classList.toggle('auto-on', S.veglia);
+  call('apiDati').then(d => {
+    render(d); const vv = store('edith_view'); if (vv) vai(vv);
+    // aperta da Siri / Google Assistant con "Edith, sono io": parte subito la conversazione
+    if (daScorciatoia) sveglia(); else if (S.veglia) { schermoAcceso(); veglia(); }
+  }).catch(() => {
+    if (S.dati) $('sub').textContent = (navigator.onLine ? 'non raggiungibile' : 'offline') + ' · ' + $('sub').textContent.replace(/, aggiorno…$/, '');
+    else if (!GAS) $('sub').textContent = 'non collegata: tocca ⚙︎';
+  });
+})();
+</script>
+</body>
+</html>

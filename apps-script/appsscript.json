@@ -1,0 +1,13 @@
+{
+  "timeZone": "Europe/Rome",
+  "dependencies": {
+    "enabledAdvancedServices": [
+      { "userSymbol": "Drive", "serviceId": "drive", "version": "v3" },
+      { "userSymbol": "Gmail", "serviceId": "gmail", "version": "v1" },
+      { "userSymbol": "Tasks", "serviceId": "tasks", "version": "v1" }
+    ]
+  },
+  "webapp": { "executeAs": "USER_DEPLOYING", "access": "MYSELF" },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8"
+}
