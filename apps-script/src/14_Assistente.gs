@@ -171,7 +171,7 @@ function normalizza_(s) {
 function aiuto_() {
   return 'Puoi chiedermi: "cosa devo pagare?", "quando scade l\'assicurazione?", "quanto manca alla scadenza?", "quanto ho speso di luce a settembre?", "e il mese scorso?", "la bolletta più cara", "briefing", ' +
     '"confronta luglio e settembre", "la luce è aumentata?", "l\'ultima bolletta del gas", "riepilogo", ' +
-    '"ho pagato l\'AXA", "quanto spazio ho?", "controlla la posta".';
+    '"ho pagato l\'AXA", "quanto spazio ho?", "controlla la posta", "segna su calendar che devo comprare il latte".';
 }
 
 function eur_(n) { return (n === null || n === undefined) ? 'importo non indicato' : '€ ' + Number(n).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+,)/g, '.'); }
@@ -222,6 +222,10 @@ function rispostaLocale_(q, P) {
   const aperte = P.filter(p => p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA)
     .sort((a, b) => (a.scadenza || '9999').localeCompare(b.scadenza || '9999'));
   const etichetta = c.chi ? 'con ' + c.chi : c.ramo ? 'di assicurazione ' + c.ramo : c.ass ? 'di assicurazioni' : c.tipo ? 'di ' + c.tipo.toLowerCase() : c.chi ? 'con ' + c.chi : 'di bollette';
+
+  // calendario: "segna su calendar che devo comprare il latte", "cosa ho in agenda domani?"
+  const cal = rispostaCalendario_(q, t);
+  if (cal) return cal;
 
   // spese fuori dalle bollette: "ho fatto benzina, sono 50 euro", "quanto ho speso di benzina?"
   const sp = rispostaSpese_(t, c);
