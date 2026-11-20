@@ -492,7 +492,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov, 18:05';
+const VERSIONE = '20 nov · v9';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
