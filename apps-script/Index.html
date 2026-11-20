@@ -46,7 +46,7 @@ section.view{display:none}section.view.on{display:block}
 .kpi span{color:var(--muted);font-size:12px}
 .row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--line)}
 .row:first-of-type{border-top:0}
-.row .t{min-width:0}.row .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.row .t{min-width:0;flex:1}.row .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
 .row .t small{color:var(--muted)}
 .tag{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
 .tag-b{background:var(--accent);box-shadow:0 0 6px var(--accent)}.tag-a{background:var(--gold);box-shadow:0 0 6px var(--gold)}
@@ -205,6 +205,7 @@ a{color:var(--accent)}
     <div class="kpis" id="kpis"></div>
     <div class="card"><h2>Controllo sistema</h2><div id="anomalie" class="muted">—</div></div>
     <div class="card"><h2>Da pagare <span id="apertiTot"></span></h2><div id="aperte"></div></div>
+    <div class="card" id="cSpese" style="display:none"><h2>Altre spese del mese <span id="speseTot"></span></h2><div id="spese"></div><p class="muted" style="font-size:12px;margin:8px 0 0">Dille a EDITH: "ho fatto benzina, sono 50 euro". L'affitto lo segno da sola ogni mese.</p></div>
     <div class="card" id="cOfferte" style="display:none"><h2>Le tue offerte</h2><div id="offerte"></div></div>
     <div class="card"><h2 id="tMesi">Bollette per mese</h2><div class="chart-wrap"><div class="chart" id="chart"></div></div><div class="legend" id="legend"></div></div>
     <div class="card"><h2>Ripartizione bollette</h2><div id="perTipo"></div></div>
@@ -365,7 +366,7 @@ function render(d, daCache){
   $('legend').innerHTML = d.tipi.map((t, i) => '<span><i style="background:' + COL[i % COL.length] + '"></i>' + esc(t) + '</span>').join('') || '<span>Nessuna bolletta quest\'anno</span>';
   $('perTipo').innerHTML = barre(d.perTipo);
   $('perRamo').innerHTML = barre(d.perRamo);
-  renderLista(); renderAnomalie(d); renderOfferte(d);
+  renderLista(); renderAnomalie(d); renderOfferte(d); renderSpese(d);
 }
 function barre(lista){
   if (!lista.length) return '<p class="muted">Nessun dato per quest\'anno.</p>';
@@ -483,6 +484,17 @@ async function cestinaPes(){
 }
 
 
+// ------------------------------------------------ altre spese (affitto, benzina...)
+function renderSpese(d){
+  const sp = d.spese;
+  $('cSpese').style.display = sp && (sp.mese || (sp.ultime || []).length) ? '' : 'none';
+  if (!sp) return;
+  const e = n => '€ ' + Number(n).toFixed(2).replace('.', ',');
+  $('speseTot').textContent = e(sp.mese || 0);
+  const max = Math.max.apply(null, (sp.perTipo || []).map(x => x.totale).concat([1]));
+  $('spese').innerHTML = (sp.perTipo || []).map(x => '<div class="row"><div class="t"><b>' + esc(x.nome) + '</b><small><span class="bar" style="display:block;height:4px;border-radius:2px;background:var(--accent);width:' + Math.round(x.totale / max * 100) + '%"></span></small></div><b>' + esc(e(x.totale)) + '</b></div>').join('') || '<div class="muted">Nessuna spesa questo mese.</div>';
+}
+
 // ------------------------------------------------ offerte in corso (lette dalle bollette)
 function renderOfferte(d){
   const O = d.offerte || [];
@@ -515,7 +527,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov · v13';
+const VERSIONE = '20 nov · v14';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1051,7 +1063,7 @@ async function caricaIA(){
   catch(e) { IA.caricamento = null; iaStato('Non riesco ad attivarla: ' + (e && e.message || e)); throw e; }
 }
 // L'IA fa solo due chiacchiere: conti, scadenze e posta restano alle regole e allo script.
-const CONTI = /bollett|pag[aho]|scad|spes|speso|spend|cost|assicur|polizz|offert|tariff|euro|€|kwh|smc|\bluce\b|\bgas\b|conto|soldi|import|rat[ae]\b|fattur|mail|posta|spazio|anomal|briefing|riepilog/i;
+const CONTI = /benzina|affitto|pieno|supermercato|farmacia|parcheggio|annulla|bollett|pag[aho]|scad|spes|speso|spend|cost|assicur|polizz|offert|tariff|euro|€|kwh|smc|\bluce\b|\bgas\b|conto|soldi|import|rat[ae]\b|fattur|mail|posta|spazio|anomal|briefing|riepilog/i;
 async function chiediIA(q, bolla){
   const m = IA.motore; if (!m) return null;
   const regole = 'Sei EDITH, l\'assistente di Teo (è una donna: usa il femminile con lei). Fai due chiacchiere in italiano: rispondi in una o due frasi brevi e naturali, ' +

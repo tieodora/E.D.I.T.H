@@ -166,6 +166,7 @@ function calcolaDati_() {
     aperte, pratiche: P.slice(0, 60), spazio: quota_(),
     anomalie: (function () { try { return anomalie_(P); } catch (e) { return []; } })(),
     offerte: offerte_(),
+    spese: (function () { try { return riepilogoSpese_(); } catch (e) { return null; } })(),
   };
 }
 
@@ -476,6 +477,10 @@ function rispostaLocale_(q, P) {
   const aperte = P.filter(p => p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA)
     .sort((a, b) => (a.scadenza || '9999').localeCompare(b.scadenza || '9999'));
   const etichetta = c.chi ? 'con ' + c.chi : c.ramo ? 'di assicurazione ' + c.ramo : c.ass ? 'di assicurazioni' : c.tipo ? 'di ' + c.tipo.toLowerCase() : c.chi ? 'con ' + c.chi : 'di bollette';
+
+  // spese fuori dalle bollette: "ho fatto benzina, sono 50 euro", "quanto ho speso di benzina?"
+  const sp = rispostaSpese_(t, c);
+  if (sp) return sp;
 
   // conversazione: risposte brevi, niente riepiloghi non richiesti
   const ora = new Date().getHours();
