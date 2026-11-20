@@ -17,6 +17,7 @@ function elaboraTutto() {
     if (!tempoScaduto_(start)) sincronizzaStati();
     if (!tempoScaduto_(start) && !PropertiesService.getScriptProperties().getProperty('OFFERTE_LETTE')) leggiOfferte(start);
     if (!tempoScaduto_(start)) riprovaDaVerificare_(start);
+    try { registraSpeseFisse_(); } catch (e) { log_('Spese fisse', e.message); }
     avvisaNuoveDaVerificare_(prima);
     PropertiesService.getScriptProperties().setProperty('ULTIMO_CONTROLLO', String(Date.now()));
     svuotaCache_();

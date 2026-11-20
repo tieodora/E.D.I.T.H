@@ -31,6 +31,8 @@ const CONFIG = {
   SHEET_LOG: 'LOG',
   SHEET_ACCESSI: 'ACCESSI',
   SHEET_OFFERTE: 'OFFERTE',
+  SHEET_SPESE: 'SPESE',
+  SHEET_SPESE_FISSE: 'SPESE FISSE',
 
   // Promemoria
   // 'principale' = eventi nel tuo calendario di sempre (consigliato); 'dedicato' = calendario separato EDITH Scadenze
