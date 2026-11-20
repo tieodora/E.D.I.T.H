@@ -32,40 +32,36 @@ Il repository ora è privato, e con l'account gratuito GitHub Pages funziona sol
 3. Tocca 🎙 e consenti il microfono quando il browser lo chiede.
 4. Mettila sulla Home: Condividi › **Aggiungi alla schermata Home** (iPhone) oppure ⋮ › **Aggiungi a schermata Home** (Android).
 
-## Le novità
-- **Riepilogo del lunedì:** ogni lunedì alle 8 ti arriva una mail con i pagamenti della settimana, le pratiche da controllare e lo spazio usato.
-- **Avvisi:** se il controllo della posta si blocca, o se arriva una bolletta che EDITH non riesce a leggere, ti scrive una mail (al massimo una ogni 6 ore per lo stesso motivo).
-- **Briefing del mattino:** il primo "Edith, sono io" della mattina ti dice che giorno è, cosa scade in settimana e cosa c'è da controllare. Puoi chiederlo quando vuoi con "briefing".
-- **Nuove domande:** "quanto manca alla scadenza?", "la bolletta più cara", "la più economica", "cosa devo pagare?" ora ti dice anche il totale.
-- **Più veloce e offline:** l'app si apre subito con gli ultimi dati salvati e funziona anche senza rete; appena c'è connessione si aggiorna da sola.
-- **Posta:** nelle mail pesanti vedi quanto spazio libereresti e puoi selezionarle tutte con un tocco. Per le newsletter: **Analizza**, scegli per ognuna cosa fare, poi **Esegui azioni scelte**. Tutto ciò che si cancella finisce nel **Cestino** di Gmail: lo svuoti tu quando vuoi.
-
 ## Come si usa
-- **Premi 🎙 e parla.** Quando smetti di parlare, EDITH risponde e legge la risposta ad alta voce (🔈 la zittisce).
-- **Modalità auto, per la guida:** nella sezione Edith tocca 🚗. Dopo ogni risposta EDITH riascolta da sola. Di' "basta" o "a dopo" per chiudere. Se non sente niente per un po', si mette in pausa.
-- **Conferme a voce:** dopo "ho pagato l'AXA" ti chiede conferma; rispondi "sì" o "no".
-- **Seguiti:** "quanto ho speso di luce a luglio?" e poi "e a settembre?", "e il gas?", "e l'anno scorso?".
-- **Chiacchiere:** "ok, bene", "grazie", "ciao", "come stai", "che ore sono", "ripeti" ricevono risposte brevi, senza riepiloghi.
+- **Apri l'app e parla.** EDITH ti saluta e ti ascolta subito, senza tasti. Quando chiudi l'app o passi a un'altra, smette di ascoltare.
+- **La sfera:** respira quando ti ascolta, gira veloce quando ci pensa e pulsa a ritmo quando parla. Toccala per mettere in pausa o riprendere, oppure per interromperla mentre parla.
+- **"Basta"** o **"a dopo"** la mettono in pausa. Per riprendere, tocca la sfera.
+- **Rumori e radio:** le frasi corte che non capisce, per esempio un pezzo di radio, le ignora in silenzio invece di rispondere.
+- **La prima volta** il telefono può chiederti un tocco sullo schermo prima di farla parlare: è una regola dei browser. Basta toccare una volta.
+- In ⚙︎ puoi spegnere l'ascolto automatico o la voce e scegliere una voce diversa.
 
-## Attivarla con la voce, senza toccare niente
-**Prima, una volta: calibra la frase.** Tocca ⚙︎ › **Calibra "Edith, sono io"** e ripeti la frase 5 volte. EDITH impara come la scrive il tuo telefono e da quel momento parte solo con quella: non con "Edith" da solo, non con "sono io" da solo, non dentro un discorso lungo.
-
-**Dentro l'app: 👂 "sempre in ascolto".** Tocca 👂 in alto. Finché l'app è aperta e lo schermo acceso (EDITH lo tiene acceso da sola), basta dire **"Edith, sono io"** e parte la conversazione, come con Google Home. Quando dici "basta" torna ad aspettare. In macchina: telefono sul supporto, app aperta, 👂 acceso. Con lo schermo spento o l'app chiusa non può sentirti: è un limite dei telefoni per tutte le pagine web.
-
-**Da telefono bloccato o con l'app chiusa: usa l'assistente del telefono (gratis).**
-- **iPhone, con Siri:** apri l'app **Comandi Rapidi** › **+** › Aggiungi azione › cerca **Apri URL** › scrivi `https://tieodora.github.io/E.D.I.T.H/?ascolta=1`. In alto rinomina il comando in **Edith sono io**. Da ora dici "**Ehi Siri, Edith sono io**" ed EDITH si apre già in ascolto.
-- **Android (il tuo S23), con Google:** di' "**Ok Google, apri EDITH**". Se avevi lasciato 👂 acceso, ti ascolta subito. Tenendo premuta l'icona trovi anche **Parla con Edith**, che apre direttamente la conversazione.
+## Cosa sa fare
+- Scadenze, spese, confronti tra mesi, "e il mese scorso?", "quanto manca alla scadenza?", "la bolletta più cara".
+- **Controllo anomalie:** "ci sono anomalie?" o "va tutto bene?". Cerca bollette molto sopra la tua media, pagamenti scaduti, rate di assicurazione mai arrivate, fornitori che non mandano bollette da più di 75 giorni, pratiche lette male, righe doppie, controllo automatico fermo e spazio quasi pieno. Le trovi anche in Home, nel riquadro "Controllo sistema".
+- **Previsione:** "quanto spenderò a fine anno?".
+- **Consigli:** "consigli per risparmiare", basati sui tuoi dati.
+- **Briefing:** il primo saluto della mattina, o quando chiedi "briefing".
+- Chiacchiere: "come stai", "mi senti", "raccontami una barzelletta", "che ore sono".
+- Ogni lunedì alle 8 una mail di riepilogo, e una mail se qualcosa si rompe.
+- **Posta:** "Esegui azioni scelte" ora rifà l'azione anche su un mittente già trattato, se cambi la scelta, e alla fine ti dice quante azioni sono riuscite.
 
 ## Una voce meno robotica (gratis)
 EDITH usa le voci già presenti sul telefono e sceglie da sola la migliore. Le voci di qualità però vanno scaricate una volta:
-- **iPhone:** Impostazioni › Accessibilità › Contenuti letti ad alta voce › Voci › **Italiano** › scarica **Federica (Premium)** o **Alice (Avanzata)**.
-- **Android:** Impostazioni › cerca **Sintesi vocale** › Motore: **Servizi vocali di Google** › ingranaggio › Installa dati vocali › **Italiano** › scegli una voce e scaricala.
+- **Android (il tuo S23):** Impostazioni › cerca **Sintesi vocale** › Motore: **Servizi vocali di Google** › ingranaggio › Installa dati vocali › **Italiano** › scegli una voce e scaricala.
+- **iPhone:** Impostazioni › Accessibilità › Contenuti letti ad alta voce › Voci › **Italiano** › scarica **Federica (Premium)**.
 
-Poi in EDITH tocca ⚙︎ › **Voce di Edith**, scegli la voce e premi **▶ Prova la voce**.
+Poi in EDITH tocca ⚙︎ › **Voce di Edith** e premi **Prova la voce**.
+
+## Aprirla con la voce da telefono bloccato
+Di' "**Ok Google, apri EDITH**": si apre e ti ascolta subito.
 
 ## Se qualcosa non va
-- **Su iPhone il microfono non parte dall'icona sulla Home:** aprila da Safari, lì funziona sempre.
-- **Non capisce "Edith, sono io" o parte quando non deve:** tocca ⚙︎ › **Calibra** e ripeti la frase 5 volte. Con **Prova** verifichi: la frase giusta deve dare ✅, una frase qualsiasi ❌. **Azzera** cancella quello che ha imparato.
+- **Non mi sente:** controlla che il microfono sia consentito per il sito (lucchetto nella barra di Chrome › Autorizzazioni) e che in ⚙︎ "Ti ascolto appena apri l'app" sia acceso.
 - **"Il token non è valido":** tocca ⚙︎ e reincolla il token.
 - **Telefono perso o token finito in mani sbagliate:** rilancia `creaTokenVoce`. Il vecchio token smette subito di funzionare; poi inserisci il nuovo dal ⚙︎.
 - **Vecchia icona sulla Home:** quella dell'app Apps Script puoi toglierla, ora ti basta EDITH.

@@ -429,6 +429,7 @@ function elaboraTutto() {
     if (!tempoScaduto_(start)) elaboraPratiche_('assicurazioni', start);
     if (!tempoScaduto_(start)) sincronizzaStati();
     avvisaNuoveDaVerificare_(prima);
+    PropertiesService.getScriptProperties().setProperty('ULTIMO_CONTROLLO', String(Date.now()));
   } catch (e) {
     log_('Errore elaborazione', e.message);
     notifica_('Errore nel controllo della posta', ['Il controllo automatico della posta si è fermato con questo errore:', e.message,
@@ -1536,6 +1537,7 @@ function doPost(e) {
 function iso_(d) { return d instanceof Date ? Utilities.formatDate(d, CONFIG.TIMEZONE, "yyyy-MM-dd") : ''; }
 
 /** Tutte le pratiche dal ANNO_INIZIO in poi, in formato semplice (niente oggetti Date). */
+var DOPPIONI_ = 0;
 function pratiche_() {
   const out = [];
   const inizio = new Date(CONFIG.ANNO_INIZIO, 0, 1);
@@ -1562,11 +1564,12 @@ function pratiche_() {
   });
   // toglie i doppioni (per esempio la stessa bolletta inoltrata con "Fwd:")
   const visti = {};
+  DOPPIONI_ = 0;
   return out.sort((a, b) => (b.rif || '').localeCompare(a.rif || '') || (/^(fwd|i):/i.test(a.oggetto) ? 1 : 0) - (/^(fwd|i):/i.test(b.oggetto) ? 1 : 0))
     .filter(p => {
       if (p.importo === null || !p.emissione) return true;
       const k = [p.area, p.tipo, p.chi, p.emissione, p.importo].join('|');
-      if (visti[k]) return false; visti[k] = true; return true;
+      if (visti[k]) { DOPPIONI_++; return false; } visti[k] = true; return true;
     });
 }
 
@@ -1607,6 +1610,7 @@ function apiDati() {
     perTipo: tipi.map(t => ({ nome: t, totale: somma(B.filter(p => p.tipo === t)) })),
     perRamo: uniq_(A.map(p => p.tipo)).map(t => ({ nome: t, totale: somma(A.filter(p => p.tipo === t)) })),
     aperte, pratiche: P.slice(0, 60), spazio: quota_(),
+    anomalie: (function () { try { return anomalie_(P); } catch (e) { return []; } })(),
   };
 }
 
@@ -1650,11 +1654,24 @@ function apiAnalizzaIscrizioni() { analizzaIscrizioni(); return apiIscrizioni();
 function apiSalvaAzione(riga, azione) {
   if (AZIONI_ISCRIZIONE.indexOf(azione) === -1) throw new Error('Azione non valida');
   const sh = sheet_(CONFIG.SHEET_ISCRIZIONI);
-  setCell_(sh, colMap_(sh), riga, 'AZIONE', azione);
+  const map = colMap_(sh);
+  setCell_(sh, map, riga, 'AZIONE', azione);
+  // nuova scelta = nuova azione da eseguire, anche se su quel mittente avevi già fatto qualcosa
+  setCell_(sh, map, riga, 'ESITO', '');
   return true;
 }
 /** Chiamata solo dopo la conferma mostrata nell'app. */
-function apiEseguiIscrizioni() { eseguiAzioniIscrizioni(true); return apiIscrizioni(); }
+function apiEseguiIscrizioni() {
+  eseguiAzioniIscrizioni(true);
+  const r = apiIscrizioni();
+  const oggi = fmtDate_(new Date());
+  r.esito = {
+    ok: r.righe.filter(x => String(x['ESITO']).indexOf('OK ' + oggi) === 0).length,
+    errori: r.righe.filter(x => /^ERRORE/.test(String(x['ESITO']))).length,
+    aMano: r.righe.filter(x => /DA FARE A MANO/.test(String(x['ESITO']))).length,
+  };
+  return r;
+}
 
 function apiPulizia() {
   preparaFoglioPulizia_();
@@ -1699,7 +1716,7 @@ function apiChiedi(domanda, storia) {
     const eSeguito = (/^(e|ed|invece|anche|pure)\b/.test(t0) && parole <= 7) || soloDettagli_(t0, P);
     const locale = eSeguito ? (rispostaLocale_(seguito_(q, storia, P), P) || rispostaLocale_(q, P)) : rispostaLocale_(q, P);
     if (locale) return Object.assign({ fonte: 'locale' }, locale);
-    return { testo: nonCapito_(), fonte: 'locale' };
+    return { testo: nonCapito_(), fonte: 'locale', capito: false };
   } catch (e) {
     log_('Errore assistente', q + ' -> ' + e.message);
     return { testo: 'Ho avuto un problema a leggere i dati (' + e.message + '). Riprova tra poco.', fonte: 'locale' };
@@ -1828,34 +1845,34 @@ function rispostaLocale_(q, P) {
   const saluto = ora < 13 ? 'Buongiorno' : ora < 18 ? 'Buon pomeriggio' : 'Buonasera';
   const corta = t.split(' ').length <= 4;
   if (eFraseDiRiconoscimento_(t) && ora >= 5 && ora < 12 && primoDelGiorno_()) {
-    return { testo: saluto + ', Theodore. ' + briefing_(P) + ' Dimmi pure.' };
+    return { testo: saluto + ', Teo. ' + briefing_(P) + ' Dimmi pure.' };
   }
   if (/briefing|novita di oggi|cosa c e oggi|com e la giornata|aggiornami|la mia giornata|cosa mi aspetta|programma di oggi|la settimana/.test(t)) {
     return { testo: briefing_(P) };
   }
   if (eFraseDiRiconoscimento_(t)) {
-    return { testo: saluto + ', Theodore. ' + (aperte.length
+    return { testo: aCaso_([saluto + ', Teo. ', 'Bentornata, Teo. ', 'Eccoti, Teo. ']) + (aperte.length
       ? 'Hai ' + aperte.length + (aperte.length === 1 ? ' pagamento' : ' pagamenti') + ' in sospeso. Dimmi pure.'
       : 'Tutto in ordine, niente da pagare. Dimmi pure.') };
   }
   if (corta && /^(ciao|buongiorno|buonasera|buon pomeriggio|salve|hey|ehi|eccomi|ehila)\b/.test(t)) {
-    return { testo: aCaso_([saluto + '! Dimmi pure.', 'Ciao Theodore! Come posso aiutarti?', 'Eccomi. Cosa ti serve?']) };
+    return { testo: aCaso_([saluto + '! Dimmi pure.', 'Ciao Teo! Come posso aiutarti?', 'Eccomi. Cosa ti serve?']) };
   }
   if (/^(basta|stop|fermati|a dopo|ci sentiamo|ciao ciao|arrivederci|buonanotte|alla prossima|chiudi|smetti)\b/.test(t)) {
-    return { testo: aCaso_(['A dopo, Theodore.', 'Va bene, sono qui quando ti serve.', 'Ok, ci sentiamo.']), fine: true };
+    return { testo: aCaso_(['A dopo, Teo.', 'Va bene, sono qui quando ti serve.', 'Ok, ci sentiamo.']), fine: true };
   }
   if (/^(grazie|ti ringrazio|ok grazie|grazie mille)\b/.test(t)) {
     return { testo: aCaso_(['Figurati!', 'Di niente.', 'Quando vuoi.', 'Figurati, è il mio lavoro.']) };
   }
   if (/^(brav[oa]|grande|ottimo lavoro|sei forte|perfetta)\b/.test(t) && corta) {
-    return { testo: aCaso_(['Grazie! Faccio del mio meglio.', 'Troppo gentile.', 'Grazie, Theodore.']) };
+    return { testo: aCaso_(['Grazie! Faccio del mio meglio.', 'Troppo gentile.', 'Grazie, Teo.']) };
   }
   if (/^(ok|okay|okei|va bene|bene|benissimo|perfetto|ottimo|capito|d accordo|ah ok|chiaro|giusto|esatto|si|no|niente|nulla|lascia stare|ok bene|ok perfetto)( [a-z]+){0,2}$/.test(t)
       && !/pagat|scad|spes|quanto|bollett|assicur|posta/.test(t)) {
     if (/^(no|niente|nulla|lascia stare)\b/.test(t)) return { testo: aCaso_(['Va bene.', 'Ok, nessun problema.']) };
     return { testo: aCaso_(['Bene.', 'Perfetto.', 'Ok.', 'D\'accordo. Se ti serve altro, chiedi pure.', 'Bene, ci sono se ti serve.']) };
   }
-  if (/come stai|come va\b(?! la| il| con)|tutto bene\b/.test(t) && corta) {
+  if (/come stai|come va\b(?! la| il| con| tutto)/.test(t) && corta && !/tutto/.test(t)) {
     return { testo: aCaso_(['Bene, grazie! Tengo d\'occhio le tue bollette. Tu?', 'Tutto bene, i conti sono in ordine. E tu?']) };
   }
   if (/^(mi senti|ci sei|sei sveglia|sei li|sei qui|pronto|edith)\b/.test(t) && corta) {
@@ -1870,6 +1887,36 @@ function rispostaLocale_(q, P) {
     return { testo: 'Oggi è ' + ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'][new Date().getDay()] + ' ' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'd') + ' ' + NOMI_MESI[new Date().getMonth()] + '.' };
   }
   if (/aiuto|cosa sai fare|cosa puoi fare|comandi|come funzion/.test(t)) return { testo: aiuto_() };
+
+  // skill: controllo anomalie
+  if (/anomali\w*|problem\w*|qualcosa (che )?non va|c e qualcosa di strano|tutto (ok|bene|a posto|in ordine|regolare)|controlla (il sistema|tutto|i dati)|stato del sistema|errori|cose strane|stranezze|check/.test(t)) {
+    return { testo: testoAnomalie_(P) };
+  }
+  // skill: previsione di spesa
+  if (/previsione|quanto spendero|quanto spenderò|stima|fine anno|prossim[io] mes[ie]/.test(t) && !/scad/.test(t)) {
+    const anno = String(new Date().getFullYear()), mese = new Date().getMonth() + 1;
+    const B = filtra_(P.filter(p => p.importo !== null && p.area === 'bollette' && p.rif.slice(0, 4) === anno), c, {});
+    const A = P.filter(p => p.importo !== null && p.area === 'assicurazioni' && p.prossima && p.prossima.slice(0, 4) === anno && p.prossima >= iso_(new Date()));
+    const fatto = somma(B), media = fatto / mese, resto = media * (12 - mese);
+    return { testo: 'Finora nel ' + anno + ' hai speso ' + eur_(fatto) + ' ' + etichetta + ', in media ' + eur_(media) + ' al mese. Di questo passo arrivi a circa ' + eur_(fatto + resto) + ' a fine anno' +
+      (A.length && !c.tipo ? ', più ' + eur_(somma(A)) + ' di rate di assicurazione ancora previste' : '') + '.' };
+  }
+  // skill: consigli per risparmiare (basati sui tuoi dati)
+  if (/consigli\w*|risparmi\w*|spendere meno|come (posso )?ridurre|tagliare/.test(t)) {
+    const anno = String(new Date().getFullYear());
+    const B = P.filter(p => p.importo !== null && p.area === 'bollette' && p.rif.slice(0, 4) === anno);
+    const per = {}; B.forEach(p => { per[p.tipo] = (per[p.tipo] || 0) + p.importo; });
+    const top = Object.keys(per).sort((a, b) => per[b] - per[a])[0];
+    const caro = anomalie_(P).find(x => /sopra la tua media/.test(x.testo));
+    return { testo: (top ? 'La voce che pesa di più è ' + top.toLowerCase() + ': ' + eur_(per[top]) + ' quest\'anno. ' : '') + (caro ? caro.testo + ' ' : '') +
+      'Due idee: confronta l\'offerta del fornitore su ilportaleofferte.it, il sito ufficiale e gratuito dell\'autorità per l\'energia, e controlla che le letture del contatore siano reali e non stimate.' };
+  }
+  // chiacchiere
+  if (/che tempo fa|meteo|piove/.test(t)) return { testo: 'Il meteo non lo vedo: lavoro solo sui tuoi conti e sulla posta. Ma se piove, almeno le bollette sono in ordine.' };
+  if (/barzelletta|fammi ridere|battuta/.test(t)) return { testo: aCaso_(['Sai qual è la bolletta più leggera? Quella già pagata.', 'Mi chiedono spesso se ho dei sentimenti. Rispondo che ho delle scadenze, che è quasi lo stesso.', 'Ho provato a fare una dieta, ma la bolletta del gas continua a ingrassare in inverno.']) };
+  if (/ti voglio bene|sei la migliore|ti amo/.test(t)) return { testo: 'Che dolce. Anche io tengo molto ai tuoi conti.' };
+  if (/sei (stupida|scema|lenta|rincoglionita)|non capisci/.test(t)) return { testo: 'Hai ragione, a volte mi perdo. Prova a chiedermelo con altre parole: imparo dalle domande che mi fai.' };
+  if (/^(buongiorno|buonasera|buonanotte) edith|^edith$/.test(t)) return { testo: aCaso_([saluto + '! Dimmi pure.', 'Eccomi.']) };
 
   // azioni
   if (/\b(controlla|elabora|aggiorna|scarica|leggi)\b.*\b(posta|mail|bollette|email)\b|nuove bollette|ci sono novita/.test(t)) {
@@ -2057,7 +2104,7 @@ function testoRiepilogo_() {
   const settimana = aperte.filter(p => p.scadenza && p.scadenza <= tra7).sort((a, b) => a.scadenza.localeCompare(b.scadenza));
   const dopo = aperte.filter(p => !p.scadenza || p.scadenza > tra7);
   const verifica = P.filter(p => p.stato === STATO.DA_VERIFICARE);
-  const r = ['Buon lunedì, Theodore. Ecco la tua settimana.'];
+  const r = ['Buon lunedì, Teo. Ecco la tua settimana.'];
   r.push(settimana.length ? 'Da pagare entro ' + data_(tra7) + ':' : 'Nessun pagamento in scadenza nei prossimi 7 giorni.');
   settimana.forEach(p => r.push('• ' + descr_(p) + (p.scadenza < oggi ? ' – GIÀ SCADUTA' : '')));
   if (dopo.length) r.push('Più avanti: ' + dopo.map(descr_).join('; ') + '.');
@@ -2065,6 +2112,7 @@ function testoRiepilogo_() {
     r.push('Da controllare nello Sheet (' + verifica.length + '):');
     verifica.forEach(p => r.push('• ' + p.tipo + (p.chi ? ' ' + p.chi : '') + ' – ' + (p.oggetto || '') + (p.link ? ' – ' + p.link : '')));
   }
+  try { const an = anomalie_(P); if (an.length) { r.push('Anomalie:'); an.forEach(x => r.push('• ' + x.testo)); } } catch (e) { }
   const s = quota_();
   if (s) r.push('Spazio Google: ' + s.usato + ' GB su ' + s.limite + ' GB (' + Math.round(s.usato / s.limite * 100) + '%).');
   return { righe: r, settimana, verifica };
@@ -2096,6 +2144,10 @@ function briefing_(P) {
   else if (aperte.length) t += 'Niente in scadenza questa settimana; il prossimo pagamento è ' + descr_(aperte[0]) + '. ';
   else t += 'Non hai pagamenti in sospeso. ';
   if (verifica) t += verifica === 1 ? 'C\'è una pratica da controllare. ' : 'Ci sono ' + verifica + ' pratiche da controllare. ';
+  try {
+    const gravi = anomalie_(P).filter(a => a.livello !== 'basso' && !/scaduta da/.test(a.testo));
+    if (gravi.length) t += 'Attenzione: ' + minuscola_(gravi[0].testo) + (gravi.length > 1 ? ' E c\'è ' + (gravi.length === 2 ? 'un\'altra cosa' : 'altro') + ': chiedimi "ci sono anomalie?".' : '') + ' ';
+  } catch (e) { }
   return t.trim();
 }
 
@@ -2117,3 +2169,78 @@ function installaNovita() {
   const ok = notifica_('Avvisi attivi', ['Da ora ti scrivo qui se qualcosa va storto o se non riesco a leggere una bolletta, e ogni lunedì alle 8 ti mando il riepilogo della settimana.'], 'installazione');
   Logger.log(ok ? 'Fatto: riepilogo ogni lunedì alle 8 e avvisi via mail attivi. Ti ho mandato una mail di prova.' : 'Trigger installato, ma la mail di prova NON è partita: guarda il foglio LOG.');
 }
+
+// ---------------------------------------------------------------- skill: controllo anomalie
+
+/**
+ * Cerca cose strane nei dati e nel sistema. Ogni anomalia: { livello: 'alto'|'medio'|'basso', testo }.
+ * Non cambia niente: segnala soltanto.
+ */
+function anomalie_(P) {
+  P = P || pratiche_();
+  const out = [], oggi = iso_(new Date());
+  const giorniDa = s => Math.round((new Date(oggi + 'T12:00:00') - new Date(s + 'T12:00:00')) / 864e5);
+  const nome = p => p.tipo + (p.chi ? ' ' + p.chi : '');
+
+  // 1. pagamenti scaduti e non segnati
+  P.filter(p => (p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA) && p.scadenza && p.scadenza < oggi)
+    .forEach(p => out.push({ livello: 'alto', testo: nome(p) + ' da ' + eur_(p.importo) + ' è scaduta da ' + giorniDa(p.scadenza) + ' giorni e non risulta pagata.' }));
+
+  // 2. bollette molto più care del solito (stesso fornitore e tipo, almeno 2 precedenti)
+  const B = P.filter(p => p.area === 'bollette' && p.importo !== null && p.rif);
+  const gruppi = {};
+  B.forEach(p => { const k = p.tipo + '|' + p.chi; (gruppi[k] = gruppi[k] || []).push(p); });
+  Object.keys(gruppi).forEach(k => {
+    const g = gruppi[k].sort((a, b) => b.rif.localeCompare(a.rif));
+    if (g.length < 3) return;
+    const ult = g[0], media = g.slice(1).reduce((s, p) => s + p.importo, 0) / (g.length - 1);
+    if (media > 0 && ult.importo > media * 1.4 && ult.importo - media > 15)
+      out.push({ livello: 'medio', testo: 'L\'ultima bolletta ' + nome(ult) + ' (' + eur_(ult.importo) + ') è il ' + Math.round((ult.importo / media - 1) * 100) + '% sopra la tua media di ' + eur_(media) + '.' });
+  });
+
+  // 3. fornitori che non mandano bollette da tanto
+  const fornitori = {};
+  B.forEach(p => { if (!fornitori[p.chi] || p.rif > fornitori[p.chi]) fornitori[p.chi] = p.rif; });
+  Object.keys(fornitori).forEach(chi => {
+    const g = giorniDa(fornitori[chi]);
+    if (chi && g > 75) out.push({ livello: 'medio', testo: 'Da ' + chi + ' non arriva una bolletta da ' + g + ' giorni (l\'ultima è del ' + data_(fornitori[chi]) + '). Controlla che la mail non sia finita altrove o che l\'etichetta "bollettazione" sia applicata.' });
+  });
+
+  // 4. rate di assicurazione previste e mai arrivate
+  const A = P.filter(p => p.area === 'assicurazioni');
+  A.filter(p => p.prossima && p.prossima < oggi && giorniDa(p.prossima) > 7).forEach(p => {
+    const arrivata = A.some(x => x !== p && x.chi === p.chi && (x.scadenza || x.rif) >= p.prossima.slice(0, 7));
+    if (!arrivata) out.push({ livello: 'medio', testo: 'Era prevista una rata ' + nome(p) + ' intorno al ' + data_(p.prossima) + ', ma non ho trovato la mail.' });
+  });
+
+  // 5. pratiche lette male
+  const ver = P.filter(p => p.stato === STATO.DA_VERIFICARE);
+  if (ver.length) out.push({ livello: 'basso', testo: (ver.length === 1 ? 'Una pratica non è stata letta del tutto' : ver.length + ' pratiche non sono state lette del tutto') + ': ' + ver.slice(0, 3).map(p => p.oggetto || nome(p)).join('; ') + '.' });
+
+  // 6. doppioni tolti dal conteggio
+  if (DOPPIONI_ > 0) out.push({ livello: 'basso', testo: 'Nello Sheet ci sono ' + DOPPIONI_ + (DOPPIONI_ === 1 ? ' riga doppia' : ' righe doppie') + ' (per esempio mail inoltrate con "Fwd:"). Non le conto due volte, ma puoi cancellarle.' });
+
+  // 7. il controllo automatico è fermo?
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const ultimo = Number(props.getProperty('ULTIMO_CONTROLLO') || 0);
+    const trigger = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'elaboraTutto');
+    if (!trigger) out.push({ livello: 'alto', testo: 'Il controllo automatico della posta non è attivo. In Apps Script lancia setup per riattivarlo.' });
+    else if (ultimo && Date.now() - ultimo > 3 * 3600e3) out.push({ livello: 'alto', testo: 'L\'ultimo controllo automatico della posta è di ' + Math.round((Date.now() - ultimo) / 3600e3) + ' ore fa: dovrebbe girare ogni ora.' });
+  } catch (e) { }
+
+  // 8. spazio quasi pieno
+  const s = quota_();
+  if (s && s.limite && s.usato / s.limite > 0.85) out.push({ livello: 'medio', testo: 'Lo spazio Google è al ' + Math.round(s.usato / s.limite * 100) + '%: nella sezione Posta trovi cosa liberare.' });
+
+  const ordine = { alto: 0, medio: 1, basso: 2 };
+  return out.sort((a, b) => ordine[a.livello] - ordine[b.livello]);
+}
+
+function testoAnomalie_(P) {
+  const a = anomalie_(P);
+  if (!a.length) return 'Ho controllato tutto: nessuna anomalia. Pagamenti, bollette, rate e controllo automatico sono in ordine.';
+  return (a.length === 1 ? 'Ho trovato una cosa da guardare: ' + minuscola_(a[0].testo) : 'Ho trovato ' + a.length + ' cose da guardare. ' + a.map((x, i) => (i + 1) + ') ' + x.testo).join(' '));
+}
+
+function minuscola_(s) { return /^[A-Z](?![A-Z])/.test(s) && !/^(AXA|Sara|SOMET|Piemonte)/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
