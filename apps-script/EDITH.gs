@@ -1461,17 +1461,25 @@ function formattaPratiche_(sh, map) {
  * Nessun servizio esterno, nessun costo, i dati restano nel tuo account Google.
  */
 
-function doGet() {
-  // Il deployment "Chiunque" serve solo per la pagina vocale: l'app completa la vede solo il proprietario.
-  let io = '', proprietario = '';
-  try { io = Session.getActiveUser().getEmail(); proprietario = Session.getEffectiveUser().getEmail(); } catch (e) { }
-  if (!io || io !== proprietario) {
+function doGet(e) {
+  // L'app ora vive su GitHub Pages. Da qui l'interfaccia si apre solo con il token nell'indirizzo
+  // (…/exec?k=TOKEN), così chi conosce l'URL del deployment "Chiunque" non vede niente.
+  const token = PropertiesService.getScriptProperties().getProperty('EDITH_TOKEN');
+  const k = e && e.parameter && e.parameter.k;
+  if (!token || !uguali_(k, token)) {
     return HtmlService.createHtmlOutput('<p style="font-family:sans-serif;padding:24px">EDITH è privata.</p>').setTitle('EDITH');
   }
   return HtmlService.createHtmlOutputFromFile('Index')
     .setTitle('EDITH')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .setFaviconUrl('https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png');
+}
+
+/** Prova gli avvisi: manda subito una mail di test e scrive l'esito nel registro. */
+function provaMail() {
+  PropertiesService.getScriptProperties().deleteProperty('AVVISO_prova');
+  const ok = notifica_('Prova', ['Se leggi questa mail, gli avvisi di EDITH funzionano.'], 'prova');
+  Logger.log(ok ? 'Mail inviata a ' + mioIndirizzo_() + '. Controlla la posta in arrivo.' : 'Mail NON inviata: guarda il foglio LOG per il motivo.');
 }
 
 // ---------------------------------------------------------------- EDITH Voce (API JSON)
@@ -1542,7 +1550,7 @@ function pratiche_() {
       out.push({
         foglio: nome, riga: r._row, area: tipo,
         tipo: (isAss ? r['RAMO'] : r['FORNITURA']) || 'Altro',
-        chi: (isAss ? r['COMPAGNIA'] : r['FORNITORE']) || '',
+        chi: String((isAss ? r['COMPAGNIA'] : r['FORNITORE']) || '').split(':')[0].trim(),
         numero: String((isAss ? r['N. POLIZZA'] : r['N. DOCUMENTO']) || ''),
         emissione: iso_(r['DATA EMISSIONE']), scadenza: iso_(r['DATA SCADENZA']), rif: iso_(rif),
         importo: typeof r['IMPORTO'] === 'number' ? r['IMPORTO'] : null,
@@ -1552,7 +1560,14 @@ function pratiche_() {
       });
     });
   });
-  return out.sort((a, b) => (b.rif || '').localeCompare(a.rif || ''));
+  // toglie i doppioni (per esempio la stessa bolletta inoltrata con "Fwd:")
+  const visti = {};
+  return out.sort((a, b) => (b.rif || '').localeCompare(a.rif || '') || (/^(fwd|i):/i.test(a.oggetto) ? 1 : 0) - (/^(fwd|i):/i.test(b.oggetto) ? 1 : 0))
+    .filter(p => {
+      if (p.importo === null || !p.emissione) return true;
+      const k = [p.area, p.tipo, p.chi, p.emissione, p.importo].join('|');
+      if (visti[k]) return false; visti[k] = true; return true;
+    });
 }
 
 function quota_() {
@@ -1681,9 +1696,8 @@ function apiChiedi(domanda, storia) {
       return { testo: ult ? String(ult.testo) : 'Non ti ho ancora detto niente!', fonte: 'locale' };
     }
     const t0 = normalizza_(q), parole = t0.split(' ').length;
-    const eSeguito = /^(e|ed|invece|anche|pure)\b/.test(t0) && parole <= 7;
-    const locale = eSeguito ? (rispostaLocale_(seguito_(q, storia, P), P) || rispostaLocale_(q, P))
-      : (rispostaLocale_(q, P) || (parole <= 3 ? rispostaLocale_(seguito_(q, storia, P), P) : null));
+    const eSeguito = (/^(e|ed|invece|anche|pure)\b/.test(t0) && parole <= 7) || soloDettagli_(t0, P);
+    const locale = eSeguito ? (rispostaLocale_(seguito_(q, storia, P), P) || rispostaLocale_(q, P)) : rispostaLocale_(q, P);
     if (locale) return Object.assign({ fonte: 'locale' }, locale);
     return { testo: nonCapito_(), fonte: 'locale' };
   } catch (e) {
@@ -1721,6 +1735,18 @@ function unisci_(prima, t, P) {
     uniq_(P.map(p => p.chi).filter(c => c)).forEach(c => normalizza_(c).split(' ').forEach(w => { if (w.length > 2) base = base.replace(new RegExp('\\b' + w + '\\b', 'g'), ' '); }));
   }
   return (base + ' ' + t.replace(/^(e|ed|invece|anche|pure)\s+/, '')).replace(/\s+/g, ' ').trim();
+}
+
+/** Vero se la frase contiene solo dettagli (mese, anno, tipo, fornitore), tipo "settembre?" o "il gas". */
+function soloDettagli_(t, P) {
+  const c = capisci_(t, P);
+  if (!(c.mesi.length || c.tipo || c.chi || c.ass || /\b20\d\d\b|anno scorso|mese scorso/.test(t))) return false;
+  let resto = ' ' + t + ' ';
+  NOMI_MESI.concat(['mese scorso', 'mese passato', 'questo mese', 'anno scorso', 'anno passato']).forEach(m => { resto = resto.split(m).join(' '); });
+  SINONIMI_TIPO.forEach(([, re]) => { resto = resto.replace(new RegExp(re.source, 'g'), ' '); });
+  resto = resto.replace(/assicura\w*|polizz\w*|\b20\d\d\b/g, ' ');
+  if (c.chi) normalizza_(c.chi).split(' ').forEach(w => { resto = resto.replace(new RegExp('\\b' + w + '\\b', 'g'), ' '); });
+  return resto.replace(/\b(a|di|del|della|dello|il|lo|la|le|i|gli|per|e|ed|in|nel|nella|quello|quella|invece|anche|pure)\b/g, ' ').trim() === '';
 }
 
 function aCaso_(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
@@ -1832,6 +1858,10 @@ function rispostaLocale_(q, P) {
   if (/come stai|come va\b(?! la| il| con)|tutto bene\b/.test(t) && corta) {
     return { testo: aCaso_(['Bene, grazie! Tengo d\'occhio le tue bollette. Tu?', 'Tutto bene, i conti sono in ordine. E tu?']) };
   }
+  if (/^(mi senti|ci sei|sei sveglia|sei li|sei qui|pronto|edith)\b/.test(t) && corta) {
+    return { testo: aCaso_(['Sì, ti sento. Dimmi pure.', 'Ci sono! Cosa ti serve?', 'Sono qui.']) };
+  }
+  if (/che mi racconti|novita\b|che si dice|cosa mi dici/.test(t) && corta) return { testo: briefing_(P) };
   if (/chi sei|come ti chiami|cosa sei/.test(t)) {
     return { testo: 'Sono EDITH, la tua assistente per bollette, assicurazioni e posta. Lavoro sui dati del tuo Sheet, senza servizi esterni.' };
   }
@@ -1882,7 +1912,12 @@ function rispostaLocale_(q, P) {
   }
 
   // scadenze
-  if (/quando scade|quando (devo|va) pagat|prossima scadenza|prossima rata|scadenz\w*|scade/.test(t) && !/quanto/.test(t)) {
+  if (/quando scade|quando (devo|va) pagat|quando (pago|devo pagare)|prossima scadenza|prossima rata|prossima bolletta|prossimo pagamento|scadenz\w*|scade/.test(t) && !/quanto (ho|hai) (speso|pagato)/.test(t)) {
+    if (/prossima bolletta/.test(t) && !filtra_(aperte, c).length) {
+      const b = P.filter(p => p.area === 'bollette' && p.emissione).slice(0, 4);
+      const ult = c.tipo || c.chi ? filtra_(b, c)[0] : b[0];
+      if (ult) return { testo: 'Non hai bollette da pagare adesso. L\'ultima è arrivata il ' + data_(ult.emissione) + ' (' + ult.tipo + ' ' + ult.chi + '): di solito ne arriva una ogni uno o due mesi.' };
+    }
     const lista = filtra_(aperte, c);
     if (lista.length) return { testo: (lista.length === 1 ? 'Scade: ' : 'Prossime scadenze: ') + lista.slice(0, 5).map(descr_).join('; ') + '.' };
     if (c.ass) {
@@ -1929,6 +1964,14 @@ function rispostaLocale_(q, P) {
       (d === 0 ? 'Stesso importo.' : (d > 0 ? 'È aumentato di ' : 'È diminuito di ') + eur_(Math.abs(d)) + ' (' + (d > 0 ? '+' : '') + Math.round(d / prec.importo * 100) + '%).') };
   }
 
+  if (/quant[ei] (bollette|assicurazioni|polizze|pratiche|rate)|elenc\w*|lista|dimmi (le|tutte)|fammi vedere/.test(t)) {
+    const lista = filtra_(P, c, { soloBollette: !c.ass }).filter(p => p.rif.slice(0, 4) === c.anno);
+    if (!lista.length) return { testo: 'Non trovo documenti ' + etichetta + ' nel ' + c.anno + '.' };
+    const nome = c.ass ? (lista.length === 1 ? ' pratica di assicurazione' : ' pratiche di assicurazione') : (lista.length === 1 ? ' bolletta' : ' bollette') + (c.tipo || c.chi ? ' ' + etichetta : '');
+    return { testo: 'Nel ' + c.anno + ' hai ' + lista.length + nome + ': ' +
+      lista.slice(0, 5).map(p => p.tipo + ' ' + p.chi + ' del ' + data_(p.rif).slice(0, 5) + ', ' + eur_(p.importo)).join('; ') + (lista.length > 5 ? '; e altri ' + (lista.length - 5) : '') + '.' };
+  }
+
   if (/\bultim[aoie]\b/.test(t)) {
     const lista = filtra_(P, c, { soloBollette: !c.ass });
     if (!lista.length) return { testo: 'Non trovo documenti ' + etichetta + ' dal ' + CONFIG.ANNO_INIZIO + '.' };
@@ -1936,7 +1979,7 @@ function rispostaLocale_(q, P) {
     return { testo: 'L\'ultima è ' + descr_(u) + (u.emissione ? ', emessa il ' + data_(u.emissione) : '') + '. Stato: ' + String(u.stato).toLowerCase() + '.' };
   }
 
-  if (/media/.test(t)) {
+  if (/media|al mese|mensil\w*|ogni mese/.test(t)) {
     const del = base.filter(p => p.rif.slice(0, 4) === c.anno);
     const mesi = c.anno === String(new Date().getFullYear()) ? new Date().getMonth() + 1 : 12;
     return { testo: 'Media mensile ' + etichetta + ' nel ' + c.anno + ': ' + eur_(somma(del) / mesi) + ' (' + eur_(somma(del)) + ' in ' + mesi + ' mesi).' };
@@ -1955,7 +1998,9 @@ function rispostaLocale_(q, P) {
     const del = (tutto ? P.filter(p => p.importo !== null) : base).filter(p => p.rif.slice(0, 4) === c.anno &&
       (!c.mesi.length || +p.rif.slice(5, 7) === c.mesi[0] + 1));
     const quando = (c.mesi.length ? 'a ' + NOMI_MESI[c.mesi[0]] + ' ' : 'nel ') + c.anno;
-    return { testo: 'Hai speso ' + eur_(somma(del)) + ' ' + (tutto ? 'in totale' : etichetta) + ' ' + quando + ' (' + del.length + (del.length === 1 ? ' documento' : ' documenti') + ').' };
+    const misto = c.tipo && del.some(p => p.tipo !== c.tipo);
+    return { testo: 'Hai speso ' + eur_(somma(del)) + ' ' + (tutto ? 'in totale' : etichetta) + ' ' + quando + ' (' + del.length + (del.length === 1 ? ' documento' : ' documenti') +
+      (misto ? ', comprese le bollette luce e gas insieme' : '') + ').' };
   }
   return null;
 }
@@ -1965,7 +2010,8 @@ function rispostaLocale_(q, P) {
  * Le mail partono solo verso il tuo indirizzo, dal tuo account. Nessun servizio esterno.
  */
 
-function mioIndirizzo_() { return Session.getEffectiveUser().getEmail(); }
+// L'indirizzo del proprietario, letto dal profilo Gmail (non serve un'autorizzazione in più)
+function mioIndirizzo_() { return Gmail.Users.getProfile('me').emailAddress; }
 
 /** Manda un avviso a te stesso, al massimo uno ogni 6 ore per lo stesso motivo. */
 function notifica_(oggetto, righe, chiave) {
@@ -2067,6 +2113,7 @@ function primoDelGiorno_() {
 function installaNovita() {
   const esiste = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'riepilogoSettimanale');
   if (!esiste) ScriptApp.newTrigger('riepilogoSettimanale').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
-  notifica_('Avvisi attivi', ['Da ora ti scrivo qui se qualcosa va storto o se non riesco a leggere una bolletta, e ogni lunedì alle 8 ti mando il riepilogo della settimana.'], 'installazione');
-  Logger.log('Fatto: riepilogo ogni lunedì alle 8 e avvisi via mail attivi. Controlla la posta: ti ho mandato una mail di prova.');
+  PropertiesService.getScriptProperties().deleteProperty('AVVISO_installazione');
+  const ok = notifica_('Avvisi attivi', ['Da ora ti scrivo qui se qualcosa va storto o se non riesco a leggere una bolletta, e ogni lunedì alle 8 ti mando il riepilogo della settimana.'], 'installazione');
+  Logger.log(ok ? 'Fatto: riepilogo ogni lunedì alle 8 e avvisi via mail attivi. Ti ho mandato una mail di prova.' : 'Trigger installato, ma la mail di prova NON è partita: guarda il foglio LOG.');
 }
