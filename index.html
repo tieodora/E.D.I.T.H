@@ -179,6 +179,7 @@ a{color:var(--accent)}
   <div class="actions"><button class="ghost" style="flex:1" onclick="sbloccaVoce();parla('Ciao Teo, sono Edith. Questa è la mia voce.')">Prova la voce</button>
   <button style="flex:1" id="cfgChiudi" onclick="mostraSetup(false)">Chiudi</button></div>
   <p class="muted" style="font-size:12px;margin:16px 0 0;text-align:center">Versione app: <b id="ver"></b></p>
+  <details style="margin-top:12px"><summary class="muted" style="font-size:12px">Diagnostica</summary><pre id="diag" style="white-space:pre-wrap;font-size:11px;color:var(--muted);margin:8px 0 0"></pre></details>
 </div></div>
 
 <main>
@@ -255,15 +256,35 @@ function store(k, v){ try { if (v === undefined) return sessionStorage.getItem(k
 // Dentro Apps Script usa google.script.run; sulla pagina GitHub chiama lo script via /exec con il token.
 const GAS = !!(window.google && google.script && google.script.run);
 function mem(k, v){ try { if (v === undefined) return localStorage.getItem('edith_' + k); if (v === null) localStorage.removeItem('edith_' + k); else localStorage.setItem('edith_' + k, v); } catch(e) { return null; } }
-async function remoto(fn, args){
-  let res;
-  // mai attese infinite: dopo 40 secondi lascio perdere e lo dico
+// registro delle ultime chiamate (⚙︎ › Diagnostica), per capire dove si ferma
+function diag(riga){ try { const d = JSON.parse(mem('diag') || '[]'); d.unshift(new Date().toLocaleTimeString('it-IT') + ' ' + riga); mem('diag', JSON.stringify(d.slice(0, 15))); } catch(e) {} }
+async function tentativo(fn, args, ms){
   const ctl = window.AbortController ? new AbortController() : null;
-  const t = setTimeout(() => ctl && ctl.abort(), 40000);
-  try { res = await fetch(mem('url'), { method: 'POST', body: JSON.stringify({ k: mem('k'), f: fn, a: args }), signal: ctl ? ctl.signal : undefined }); }
-  catch (e) { clearTimeout(t); if (e && e.name === 'AbortError') throw new Error('lo script ci sta mettendo troppo, riprova tra poco'); throw new Error(navigator.onLine ? 'lo script non risponde: controlla URL, accesso "Chiunque" e versione del deployment' : 'sei offline'); }
-  clearTimeout(t);
-  let j; try { j = JSON.parse(await res.text()); }
+  const t = setTimeout(() => ctl && ctl.abort(), ms);
+  const t0 = Date.now();
+  try {
+    const res = await fetch(mem('url'), { method: 'POST', body: JSON.stringify({ k: mem('k'), f: fn, a: args }), signal: ctl ? ctl.signal : undefined, cache: 'no-store', redirect: 'follow' });
+    const testo = await res.text();
+    diag(fn + ' ' + res.status + ' in ' + (Date.now() - t0) + ' ms');
+    return testo;
+  } catch (e) {
+    diag(fn + ' ' + (e && e.name === 'AbortError' ? 'senza risposta dopo ' : 'errore ' + (e && e.message) + ' dopo ') + (Date.now() - t0) + ' ms');
+    throw e;
+  } finally { clearTimeout(t); }
+}
+async function remoto(fn, args){
+  // le domande normali lo script le risolve in pochi secondi: se una risposta si perde, riprovo una volta invece di aspettare
+  const lunga = !/^(apiDati|apiChiedi|dati|chiedi)$/.test(fn) || (fn === 'apiChiedi' && /posta|mail|nuove bollette|aggiorna|controlla|elabora|novita/i.test(String(args[0] || '')));
+  let testo;
+  for (let i = 1; ; i++) {
+    try { testo = await tentativo(fn, args, lunga ? 300000 : 15000); break; }
+    catch (e) {
+      if (e && e.name === 'AbortError') { if (!lunga && i < 2) continue; throw new Error('lo script ci sta mettendo troppo, riprova tra poco'); }
+      if (i < 2 && navigator.onLine) { await new Promise(r => setTimeout(r, 800)); continue; }
+      throw new Error(navigator.onLine ? 'lo script non risponde: controlla URL, accesso "Chiunque" e versione del deployment' : 'sei offline');
+    }
+  }
+  let j; try { j = JSON.parse(testo); }
   catch (e) { throw new Error('il deployment non è accessibile a tutti: impostalo su "Chiunque"'); }
   if (!j.ok) { if (/token/i.test(j.errore || '')) mostraSetup(true, /scaduto/i.test(j.errore) ? 'Il token è scaduto: rilancia creaTokenVoce e incolla quello nuovo.' : 'Il token non è valido.'); throw new Error(j.errore || 'errore'); }
   if (j.k && j.k !== mem('k')) mem('k', j.k);   // token rinnovato in automatico
@@ -278,7 +299,7 @@ function mostraSetup(si, err){
   $('cfgU').value = mem('url') || ''; $('cfgK').value = mem('k') || ''; $('cfgErr').textContent = err || '';
   $('cfgConn').style.display = GAS ? 'none' : 'flex';
   $('cfgChiudi').style.display = GAS || (mem('url') && mem('k')) ? '' : 'none';
-  if (si) { riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; $('cfgIA').checked = mem('ia2') === '1'; if (!IA.motore && !IA.caricamento && mem('ia2') !== '1') iaStato(navigator.gpu ? '' : 'Su questo browser non è disponibile (manca WebGPU).'); }
+  if (si) { try { $('diag').textContent = JSON.parse(mem('diag') || '[]').join('\n') || 'nessuna chiamata registrata'; } catch(e) {} riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; $('cfgIA').checked = mem('ia2') === '1'; if (!IA.motore && !IA.caricamento && mem('ia2') !== '1') iaStato(navigator.gpu ? '' : 'Su questo browser non è disponibile (manca WebGPU).'); }
 }
 async function salvaSetup(){
   const u = $('cfgU').value.trim(), k = $('cfgK').value.trim();
@@ -492,7 +513,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov · v10';
+const VERSIONE = '20 nov · v11';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
