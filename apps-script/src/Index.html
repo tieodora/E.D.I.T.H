@@ -269,7 +269,7 @@ function mostraSetup(si, err){
   $('cfgU').value = mem('url') || ''; $('cfgK').value = mem('k') || ''; $('cfgErr').textContent = err || '';
   $('cfgConn').style.display = GAS ? 'none' : 'flex';
   $('cfgChiudi').style.display = GAS || (mem('url') && mem('k')) ? '' : 'none';
-  if (si) { riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; $('cfgIA').checked = mem('ia') === '1'; if (!IA.motore && !IA.caricamento && mem('ia') !== '1') iaStato(navigator.gpu ? '' : 'Su questo browser non è disponibile (manca WebGPU).'); }
+  if (si) { riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; $('cfgIA').checked = mem('ia2') === '1'; if (!IA.motore && !IA.caricamento && mem('ia2') !== '1') iaStato(navigator.gpu ? '' : 'Su questo browser non è disponibile (manca WebGPU).'); }
 }
 async function salvaSetup(){
   const u = $('cfgU').value.trim(), k = $('cfgK').value.trim();
@@ -460,7 +460,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov, 13:55';
+const VERSIONE = '20 nov, 14:15';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -562,10 +562,10 @@ async function chiedi(q, aVoce){
   V.pensando = false;
   // a voce, una frase corta che non capisco è quasi sempre rumore (radio, altre persone): la ignoro
   if (aVoce && r.capito === false && norm(q).split(' ').length < 4) { io.classList.add('piano'); setTimeout(() => io.remove(), 2500); return riprendi(); }
-  if (r.capito === false && IA.motore) {
+  if (r.capito === false && IA.motore && !aVoce || r.capito === false && IA.motore && norm(q).split(' ').length >= 4) {
     V.pensando = true; aggiornaStato();
-    const t = await chiediIA(q).catch(() => null);
-    V.pensando = false;
+    let t = null;
+    try { t = await chiediIA(q); } catch(e) {} finally { V.pensando = false; }
     if (t) { S.storia.push({ ruolo: 'io', testo: q }); return rispondi(t, false, '', 'ia'); }
   }
   S.storia.push({ ruolo: 'io', testo: q });
@@ -666,7 +666,7 @@ const IA = { motore: null, caricamento: null };
 const IA_LIB = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.86/+esm';
 function iaStato(t){ const el = $('iaStato'); if (el) el.textContent = t || ''; }
 function cambiaIA(si){
-  mem('ia', si ? '1' : '0');
+  mem('ia2', si ? '1' : '0');
   if (si) caricaIA().catch(() => {});
   else { if (IA.motore) IA.motore.unload().catch(() => {}); IA.motore = null; IA.caricamento = null; iaStato('Spenta. Il modello resta salvato sul telefono: riaccenderla è veloce.'); }
 }
@@ -674,6 +674,7 @@ async function caricaIA(){
   if (IA.motore) return IA.motore;
   if (IA.caricamento) return IA.caricamento;
   IA.caricamento = (async () => {
+    if (GAS) throw new Error('disponibile solo nell\'app su GitHub');
     if (!navigator.gpu) throw new Error('questo browser non supporta WebGPU: aggiorna Chrome');
     const scheda = await navigator.gpu.requestAdapter();
     if (!scheda) throw new Error('il telefono non mette a disposizione la grafica (WebGPU)');
@@ -681,7 +682,9 @@ async function caricaIA(){
     const modello = 'Qwen2.5-1.5B-Instruct-' + (f16 ? 'q4f16_1' : 'q4f32_1') + '-MLC';
     iaStato('Preparo l\'IA…');
     const webllm = await import(IA_LIB);
-    const m = await webllm.CreateMLCEngine(modello, { initProgressCallback: p => {
+    // il modello gira in un worker separato: l'app resta sempre usabile mentre scarica o pensa
+    const lavoratore = new Worker(new URL('ia-worker.js', location.href), { type: 'module' });
+    const m = await webllm.CreateWebWorkerMLCEngine(lavoratore, modello, { initProgressCallback: p => {
       const pc = Math.round((p.progress || 0) * 100);
       iaStato(/cache|caricamento|loading from cache/i.test(p.text || '') ? 'Carico l\'IA dalla memoria del telefono… ' + pc + '%' : 'Scarico l\'IA (una volta sola, circa 1 GB)… ' + pc + '%');
     } });
@@ -709,7 +712,9 @@ async function chiediIA(q){
     'Non puoi pagare, cancellare mail né fare azioni: se te lo chiede, spiega che può farlo dall\'app. ' +
     'Per domande generali rispondi pure con quello che sai, ammettendo i dubbi.\n\nDATI DI TEO\n' + contestoIA();
   const storia = S.storia.slice(-6).map(x => ({ role: x.ruolo === 'io' ? 'user' : 'assistant', content: x.testo }));
-  const r = await m.chat.completions.create({ messages: [{ role: 'system', content: sistema }, ...storia, { role: 'user', content: q }], temperature: 0.4, max_tokens: 180 });
+  let timer;
+  const tempo = new Promise((_, ko) => { timer = setTimeout(() => { m.interruptGenerate && m.interruptGenerate(); ko(new Error('troppo lenta')); }, 25000); });
+  const r = await Promise.race([m.chat.completions.create({ messages: [{ role: 'system', content: sistema }, ...storia, { role: 'user', content: q }], temperature: 0.4, max_tokens: 150 }), tempo]).finally(() => clearTimeout(timer));
   const t = (r.choices[0].message.content || '').replace(/[*#_`]/g, '').trim();
   return t || null;
 }
@@ -731,7 +736,7 @@ S.attesa = null;
     }
     if (!mem('url') || !mem('k')) { mostraSetup(true); aggiornaStato(); return; }
   }
-  if (mem('ia') === '1') caricaIA().catch(() => {});
+  if (!GAS && mem('ia2') === '1') setTimeout(() => caricaIA().catch(() => {}), 4000);
   const v = store('edith_view'); if (v) vai(v);
   call('apiDati').then(d => { render(d); }).catch(() => {
     if (S.dati) $('sub').textContent = (navigator.onLine ? 'non raggiungibile' : 'offline') + ' · ' + $('sub').textContent.replace(/, aggiorno…$/, '');
