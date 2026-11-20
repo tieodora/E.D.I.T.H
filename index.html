@@ -114,16 +114,24 @@ a{color:var(--accent)}
 <header>
   <div><h1>EDITH</h1><small id="sub">caricamento…</small></div>
   <div><button class="ghost small" id="btnElabora" onclick="elabora()">↻ Controlla posta</button>
-  <button class="ghost small" id="btnCfg" onclick="mostraSetup(true)" title="Collegamento" style="display:none">⚙︎</button></div>
+  <button class="ghost small" id="btnVeglia" onclick="toggleVeglia()" title="Sempre in ascolto: di' &quot;Edith, sono io&quot;">👂</button>
+  <button class="ghost small" id="btnCfg" onclick="mostraSetup(true)" title="Impostazioni" style="display:none">⚙︎</button></div>
 </header>
 <div id="setup"><div class="box">
   <img src="icon-192.png" alt="">
+  <div id="cfgConn" style="display:flex;flex-direction:column;gap:10px">
   <h2 style="margin:0">Collega EDITH</h2>
   <p class="muted" style="margin:0">Serve una volta sola: l'URL del deployment Voce (finisce con <b>/exec</b>) e il token creato da <b>creaTokenVoce</b>. Restano salvati solo su questo telefono.</p>
   <label for="cfgU">URL del deployment</label><input id="cfgU" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
   <label for="cfgK">Token</label><input id="cfgK" type="password" autocomplete="off">
   <div class="err" id="cfgErr"></div>
   <button onclick="salvaSetup()">Collega</button>
+  </div>
+  <h3 style="margin:18px 0 0">Voce di Edith</h3>
+  <p class="muted" style="margin:0;font-size:13px">Le voci migliori sono quelle "Premium", "Avanzata" o "Google". Se senti solo voci robotiche, scarica una voce italiana di qualità dalle impostazioni del telefono (vedi la guida).</p>
+  <select id="cfgVoce" onchange="mem('voce_nome', this.value)" style="font:inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink)"></select>
+  <div class="actions" style="display:flex;gap:8px"><button class="ghost" style="flex:1" onclick="S.voce=true;parla('Ciao Theodore, sono Edith. Hai un pagamento in sospeso: l\'assicurazione auto, 779 euro, scade il 30 dicembre.')">▶ Prova la voce</button>
+  <button class="ghost" style="flex:1" id="cfgChiudi" onclick="mostraSetup(false)">Chiudi</button></div>
 </div></div>
 <main>
   <!-- HOME -->
@@ -218,6 +226,9 @@ function call(fn, ...args){
 function mostraSetup(si, err){
   $('setup').style.display = si ? 'block' : 'none';
   $('cfgU').value = mem('url') || ''; $('cfgK').value = mem('k') || ''; $('cfgErr').textContent = err || '';
+  $('cfgConn').style.display = GAS ? 'none' : 'flex';
+  $('cfgChiudi').style.display = GAS || (mem('url') && mem('k')) ? '' : 'none';
+  if (si) riempiVoci();
 }
 async function salvaSetup(){
   const u = $('cfgU').value.trim(), k = $('cfgK').value.trim();
@@ -383,7 +394,9 @@ async function cestinaPes(){
 // ------------------------------------------------ EDITH
 const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
 // "Edith, sono io" anche se la dettatura scrive "Edit", "Eddie", "Edi"…
-const eParolaOrdine = t => /\bsono (io|io stess[oa])\b/.test(t) && /\b(h?ed+[iy]t*h?|e dit|eddie|eddy|edita|editha|aedith)\b/.test(t);
+// Molto tollerante: la dettatura scrive anche "it sono", "ed io", "edi sono io"…
+const ED = /\b(h?ed+[iy]?t*h?|it|ed|edi|eddie|eddy|edita|editha|aedith|e dit|elit|edict|aedit|ehi dit)\b/;
+const eParolaOrdine = t => /\bsono io\b/.test(t) || (ED.test(t) && /\b(sono|io|so)\b/.test(t));
 function sblocca(){
   if (!eParolaOrdine(norm($('pass').value))) { toast('Non ti riconosco… scrivi o detta "Edith, sono io"'); return; }
   store('edith_ok', '1'); apriChat(true);
@@ -435,13 +448,30 @@ async function chiedi(q, silenzioso){
 function rispondi(t){ bolla('ed', t); S.storia.push({ruolo:'edith', testo:t}); parla(t, dopoRisposta); }
 function dopoRisposta(){ if (S.auto) setTimeout(() => ascolta('q', invia), 250); }
 function toggleVoce(){ S.voce = !S.voce; $('voce').textContent = S.voce ? '🔊' : '🔈'; store('edith_voce', S.voce ? '1' : '0'); if (!S.voce) try { speechSynthesis.cancel(); } catch(e){} }
+// Sceglie la voce italiana più naturale disponibile sul telefono (nessun servizio a pagamento)
+function punteggioVoce(v){
+  let p = 0; const n = v.name;
+  if (/premium|enhanced|avanzat|natural|neural|wavenet|siri/i.test(n)) p += 10;
+  if (/google/i.test(n)) p += 6;
+  if (!v.localService) p += 2;
+  if (/federica|alice|elsa|isabella|emma|bianca|carla/i.test(n)) p += 2;
+  if (/compact|espeak|eloquence|grandma|grandpa|nonna|nonno|rocko|shelley|flo|reed|sandy/i.test(n)) p -= 8;
+  return p;
+}
+function vociIt(){ try { return speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang)).sort((a, b) => punteggioVoce(b) - punteggioVoce(a)); } catch(e) { return []; } }
+function voceScelta(){ const v = vociIt(), n = mem('voce_nome'); return v.find(x => x.name === n) || v[0] || null; }
+function riempiVoci(){
+  const v = vociIt(), sel = $('cfgVoce'), scelta = voceScelta();
+  sel.innerHTML = v.length ? v.map(x => '<option' + (scelta && x.name === scelta.name ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') : '<option>Nessuna voce italiana trovata</option>';
+}
+try { speechSynthesis.onvoiceschanged = () => { if ($('setup').style.display === 'block') riempiVoci(); }; speechSynthesis.getVoices(); } catch(e) {}
 function parla(t, poi){
   if (!S.voce || !('speechSynthesis' in window)) { if (poi) poi(); return; }
   try {
     speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(t.replace(/€\s?/g, '').replace(/(\d+),(\d\d)\b/g, '$1 euro e $2'));
-    u.lang = 'it-IT'; u.rate = 1.05;
-    const v = speechSynthesis.getVoices().filter(v => /^it/i.test(v.lang)); const vv = v.find(v => /female|alice|elsa|federica|google/i.test(v.name)) || v[0]; if (vv) u.voice = vv;
+    u.lang = 'it-IT'; u.rate = 1; u.pitch = 1;
+    const vv = voceScelta(); if (vv) u.voice = vv;
     let fatto = false; const fine = () => { if (!fatto) { fatto = true; if (poi) poi(); } };
     u.onend = fine; u.onerror = fine; speechSynthesis.speak(u);
     setTimeout(() => { if (!speechSynthesis.speaking) fine(); }, 20000);
@@ -459,15 +489,22 @@ function ascolta(campo, poi){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR || store('edith_mic') === 'no') { setAuto(false); return dettatura(campo, SR ? '' : 'Questo browser non ha il riconoscimento vocale.', !SR); }
   if (rec) return;
+  if (recV) { try { recV.abort(); } catch(e) {} recV = null; }
   try { speechSynthesis.cancel(); } catch(e) {}
   const btn = campo === 'q' ? $('mic') : $('micLock');
   let finale = '', prov = null, errore = '';
   try {
-    rec = new SR(); rec.lang = 'it-IT'; rec.interimResults = true; rec.maxAlternatives = 1;
+    rec = new SR(); rec.lang = 'it-IT'; rec.interimResults = true; rec.maxAlternatives = campo === 'pass' ? 5 : 1;
     rec.onstart = () => { btn.classList.add('mic-on'); btn.textContent = '■'; };
     rec.onresult = e => {
       let parz = '';
-      for (let i = e.resultIndex; i < e.results.length; i++) { if (e.results[i].isFinal) finale += e.results[i][0].transcript; else parz += e.results[i][0].transcript; }
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (!r.isFinal) { parz += r[0].transcript; continue; }
+        let alt = r[0].transcript;
+        if (campo === 'pass') for (let j = 0; j < r.length; j++) if (eParolaOrdine(norm(r[j].transcript))) { alt = r[j].transcript; break; }
+        finale += alt;
+      }
       $(campo).value = (finale + ' ' + parz).trim();
     };
     rec.onerror = e => { errore = e.error; };
@@ -483,7 +520,59 @@ function ascolta(campo, poi){
   } catch(e) { rec = null; dettatura(campo, 'Microfono non disponibile.', true); }
 }
 function micTap(){ if (rec) { S.silenzi = 9; try { rec.stop(); } catch(e) {} return; } S.silenzi = 0; ascolta('q', invia); }
-function setAuto(v){ S.auto = v; $('auto').classList.toggle('auto-on', v); }
+function setAuto(v){
+  const era = S.auto; S.auto = v; $('auto').classList.toggle('auto-on', v); schermoAcceso();
+  // finita la conversazione, se "sempre in ascolto" è attivo torna ad aspettare "Edith, sono io"
+  if (era && !v && S.veglia) setTimeout(veglia, 800);
+}
+
+// ------------------------------------------------ sempre in ascolto ("Edith, sono io" senza toccare nulla)
+let recV = null, wl = null;
+async function schermoAcceso(){
+  const serve = S.veglia || S.auto;
+  try {
+    if (serve && !wl && navigator.wakeLock) { wl = await navigator.wakeLock.request('screen'); wl.addEventListener('release', () => { wl = null; }); }
+    if (!serve && wl) { wl.release(); wl = null; }
+  } catch(e) {}
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') { schermoAcceso(); if (S.veglia && !S.auto && !rec) veglia(); }
+});
+function toggleVeglia(){
+  S.veglia = !S.veglia; mem('veglia', S.veglia ? '1' : null);
+  $('btnVeglia').classList.toggle('auto-on', S.veglia); schermoAcceso();
+  if (S.veglia) { toast('Ti ascolto: di\' "Edith, sono io". Funziona con l\'app aperta e lo schermo acceso.'); veglia(); }
+  else if (recV) { try { recV.abort(); } catch(e) {} recV = null; }
+}
+function veglia(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR || !S.veglia || S.auto || rec || recV || document.visibilityState !== 'visible') return;
+  let svegliata = false, bloccato = false;
+  try {
+    recV = new SR(); recV.lang = 'it-IT'; recV.continuous = true; recV.interimResults = true; recV.maxAlternatives = 5;
+    recV.onresult = e => {
+      for (let i = e.resultIndex; i < e.results.length && !svegliata; i++)
+        for (let j = 0; j < e.results[i].length; j++)
+          if (eParolaOrdine(norm(e.results[i][j].transcript))) { svegliata = true; break; }
+      if (svegliata) try { recV.abort(); } catch(err) {}
+    };
+    recV.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') bloccato = true; };
+    recV.onend = () => {
+      recV = null;
+      if (bloccato) { S.veglia = false; $('btnVeglia').classList.remove('auto-on'); toast('Il microfono è bloccato: consentilo nelle impostazioni del browser.'); return; }
+      if (svegliata) return sveglia();
+      if (S.veglia && !S.auto) setTimeout(veglia, 300);
+    };
+    recV.start();
+  } catch(e) { recV = null; if (S.veglia) setTimeout(veglia, 1500); }
+}
+function sveglia(){
+  bolla('me', 'Edith, sono io');   // prima la bolla, così apriChat non saluta due volte
+  store('edith_ok', '1'); vai('edith'); apriChat(false);
+  if (!S.voce) toggleVoce();
+  setAuto(true); S.silenzi = 0;
+  chiedi('Edith, sono io', true);
+}
 function toggleAuto(){
   setAuto(!S.auto);
   if (S.auto) { if (!S.voce) toggleVoce(); toast('Modalità auto: parla pure, di\' "basta" per smettere'); S.silenzi = 0; ascolta('q', invia); }
@@ -493,9 +582,9 @@ function toggleAuto(){
 // ------------------------------------------------ avvio
 S.auto = false; S.silenzi = 0; S.attesa = null;
 (function avvio(){
+  $('btnCfg').style.display = '';
   const v = store('edith_voce'); S.voce = v === null ? !GAS : v === '1'; $('voce').textContent = S.voce ? '🔊' : '🔈';
   if (!GAS) {
-    $('btnCfg').style.display = '';
     if (location.hash.length > 2) {
       const h = new URLSearchParams(location.hash.slice(1));
       if (h.get('u')) mem('url', h.get('u')); if (h.get('k')) mem('k', h.get('k'));
@@ -503,7 +592,13 @@ S.auto = false; S.silenzi = 0; S.attesa = null;
     }
     if (!mem('url') || !mem('k')) { mostraSetup(true); return; }
   }
-  call('apiDati').then(d => { render(d); const vv = store('edith_view'); if (vv) vai(vv); }).catch(() => { if (!GAS) $('sub').textContent = 'non collegata: tocca ⚙︎'; });
+  const daScorciatoia = /[?&]ascolta=1\b/.test(location.search);
+  S.veglia = mem('veglia') === '1'; $('btnVeglia').classList.toggle('auto-on', S.veglia);
+  call('apiDati').then(d => {
+    render(d); const vv = store('edith_view'); if (vv) vai(vv);
+    // aperta da Siri / Google Assistant con "Edith, sono io": parte subito la conversazione
+    if (daScorciatoia) sveglia(); else if (S.veglia) { schermoAcceso(); veglia(); }
+  }).catch(() => { if (!GAS) $('sub').textContent = 'non collegata: tocca ⚙︎'; });
 })();
 </script>
 </body>
