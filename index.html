@@ -122,6 +122,8 @@ a{color:var(--accent)}
 .b{max-width:86%;padding:9px 13px;border-radius:16px;margin:6px 0;white-space:pre-wrap;word-wrap:break-word}
 .b.me{margin-left:auto;background:#0f2a35;color:var(--ink);border:1px solid rgba(37,217,255,.25);border-bottom-right-radius:4px}
 .b.ed{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
+.b.scrive:empty::before{content:'• • •';letter-spacing:3px;color:var(--muted);animation:pulsa 1s infinite}
+@keyframes pulsa{50%{opacity:.3}}
 .b.ia::after{content:'IA locale';display:block;margin-top:6px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
 .b.piano{opacity:.5}
 .ask{display:flex;gap:8px;padding-top:8px;flex:none}
@@ -171,8 +173,8 @@ a{color:var(--accent)}
   <select id="cfgVoce" onchange="mem('voce_nome', this.value)"></select>
   <p class="muted" style="margin:0;font-size:13px">Le voci migliori sono "Google" o "Premium". Se senti solo voci robotiche, scarica una voce italiana dalle impostazioni del telefono (vedi la guida).</p>
   <h3>IA sul telefono <span class="muted" style="font-weight:400">· sperimentale</span></h3>
-  <label class="sw">Usa l'IA locale quando non capisco<input type="checkbox" id="cfgIA" onchange="cambiaIA(this.checked)"></label>
-  <p class="muted" style="margin:0;font-size:13px">Gratis e privata: un piccolo modello (circa 700 MB, scaricalo col Wi-Fi) gira direttamente sul telefono e i tuoi dati non escono da qui. Serve Chrome aggiornato. Le risposte su importi e scadenze restano quelle precise di sempre; l'IA interviene solo sulle domande che le regole non capiscono.</p>
+  <label class="sw">Due chiacchiere con l'IA locale<input type="checkbox" id="cfgIA" onchange="cambiaIA(this.checked)"></label>
+  <p class="muted" style="margin:0;font-size:13px">Gratis e privata: un piccolo modello (circa 700 MB, scaricalo col Wi-Fi) gira direttamente sul telefono e i tuoi dati non escono da qui. Serve Chrome aggiornato. Fa solo due chiacchiere: conti, scadenze e posta restano alle risposte precise di sempre.</p>
   <div id="iaStato" class="muted" style="font-size:13px"></div>
   <div class="actions"><button class="ghost" style="flex:1" onclick="sbloccaVoce();parla('Ciao Teo, sono Edith. Questa è la mia voce.')">Prova la voce</button>
   <button style="flex:1" id="cfgChiudi" onclick="mostraSetup(false)">Chiudi</button></div>
@@ -486,7 +488,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov, 15:30';
+const VERSIONE = '20 nov, 17:40';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -588,10 +590,12 @@ async function chiedi(q, aVoce){
   V.pensando = false;
   // a voce, una frase corta che non capisco è quasi sempre rumore (radio, altre persone): la ignoro
   if (aVoce && r.capito === false && norm(q).split(' ').length < 4) { io.classList.add('piano'); setTimeout(() => io.remove(), 2500); return riprendi(); }
-  if (r.capito === false && IA.motore && !aVoce || r.capito === false && IA.motore && norm(q).split(' ').length >= 4) {
+  if (r.capito === false && IA.motore && !CONTI.test(q) && (!aVoce || norm(q).split(' ').length >= 3)) {
     V.pensando = true; aggiornaStato();
+    const b = bolla('ed', '', 'ia scrive');
     let t = null;
-    try { t = await chiediIA(q); } catch(e) {} finally { V.pensando = false; }
+    try { t = await chiediIA(q, b); } catch(e) {} finally { V.pensando = false; b.classList.remove('scrive'); }
+    b.remove();
     if (t) { S.storia.push({ ruolo: 'io', testo: q }); return rispondi(t, false, '', 'ia'); }
   }
   S.storia.push({ ruolo: 'io', testo: q });
@@ -724,34 +728,33 @@ async function caricaIA(){
   try { return await IA.caricamento; }
   catch(e) { IA.caricamento = null; iaStato('Non riesco ad attivarla: ' + (e && e.message || e)); throw e; }
 }
-function contestoIA(){
-  const d = S.dati || {};
-  const eur = n => n == null ? '?' : '€ ' + Number(n).toFixed(2).replace('.', ',');
-  const righe = (d.pratiche || []).slice(0, 30).map(p => '- ' + [p.area === 'assicurazioni' ? 'assicurazione' : 'bolletta', p.tipo, p.chi, p.emissione && 'emessa ' + p.emissione, p.scadenza && 'scade ' + p.scadenza, eur(p.importo), p.stato].filter(Boolean).join(', '));
-  const k = d.kpi || {};
-  return 'Oggi è ' + (d.oggi || new Date().toISOString().slice(0, 10)) + '.\n' +
-    'Totali ' + (d.anno || '') + ': bollette ' + eur(k.bollette) + ' (media mensile ' + eur(k.media) + '), assicurazioni ' + eur(k.assicurazioni) + ', pagamenti aperti ' + (k.aperte || 0) + ' per ' + eur(k.apertiTot) + '.\n' +
-    'Anomalie: ' + ((d.anomalie || []).map(a => a.testo).join(' | ') || 'nessuna') + '.\n' +
-    'Pratiche (le più recenti):\n' + (righe.join('\n') || '- nessuna');
-}
-async function chiediIA(q){
+// L'IA fa solo due chiacchiere: conti, scadenze e posta restano alle regole e allo script.
+const CONTI = /bollett|pag[aho]|scad|spes|speso|spend|cost|assicur|polizz|offert|tariff|euro|€|kwh|smc|\bluce\b|\bgas\b|conto|soldi|import|rat[ae]\b|fattur|mail|posta|spazio|anomal|briefing|riepilog/i;
+async function chiediIA(q, bolla){
   const m = IA.motore; if (!m) return null;
-  const sistema = 'Sei EDITH, l\'assistente personale di Teo (donna: usa il femminile quando ti rivolgi a lei). ' +
-    'Rispondi in italiano, in modo caldo e naturale, al massimo 3 frasi brevi, senza elenchi né markdown, perché la risposta viene letta ad alta voce. ' +
-    'Per bollette, assicurazioni e scadenze usa SOLO i dati qui sotto: se un dato non c\'è, dillo, non inventare mai importi o date. ' +
-    'Non puoi pagare, cancellare mail né fare azioni: se te lo chiede, spiega che può farlo dall\'app. ' +
-    'Per domande generali rispondi pure con quello che sai, ammettendo i dubbi.\n\nDATI DI TEO\n' + contestoIA();
-  const storia = S.storia.slice(-6).map(x => ({ role: x.ruolo === 'io' ? 'user' : 'assistant', content: x.testo }));
-  let timer;
-  const tempo = new Promise((_, ko) => { timer = setTimeout(() => { m.interruptGenerate && m.interruptGenerate(); ko(new Error('troppo lenta')); }, 25000); });
-  // le istruzioni vanno nel primo messaggio: alcuni modelli piccoli (Gemma) non accettano il ruolo "system"
-  const msgs = storia.concat([{ role: 'user', content: q }]);
-  while (msgs.length && msgs[0].role !== 'user') msgs.shift();
-  for (let i = msgs.length - 1; i > 0; i--) if (msgs[i].role === msgs[i - 1].role) msgs.splice(i - 1, 1);   // ruoli alternati
-  msgs[0] = { role: 'user', content: sistema + '\n\nDOMANDA\n' + msgs[0].content };
-  const r = await Promise.race([m.chat.completions.create({ messages: msgs, temperature: 0.4, max_tokens: 150 }), tempo]).finally(() => clearTimeout(timer));
-  const t = (r.choices[0].message.content || '').replace(/[*#_`]/g, '').trim();
-  return t || null;
+  const regole = 'Sei EDITH, l\'assistente di Teo (è una donna: usa il femminile con lei). Fai due chiacchiere in italiano: rispondi in una o due frasi brevi e naturali, ' +
+    'senza elenchi né simboli, perché la risposta viene letta ad alta voce. Non parlare di soldi, bollette o scadenze: per quelle Teo chiede a te con parole semplici e rispondono le tue regole.';
+  const ult = S.storia.slice(-2).filter(x => x.ruolo === 'edith').map(x => x.testo).pop();
+  const msgs = [{ role: 'user', content: regole + (ult ? '\n\nTu avevi appena detto: "' + ult + '"' : '') + '\n\nTeo dice: ' + q }];
+  let testo = '', fermata = false;
+  const ferma = () => { fermata = true; try { m.interruptGenerate(); } catch(e) {} };
+  const limite = setTimeout(ferma, 15000);          // al massimo 15 secondi
+  const primo = setTimeout(() => { if (!testo) ferma(); }, 9000);   // se dopo 9 secondi non ha detto niente, lascio stare
+  try {
+    const flusso = await m.chat.completions.create({ messages: msgs, temperature: 0.6, max_tokens: 70, stream: true });
+    for await (const pezzo of flusso) {
+      const d = pezzo.choices && pezzo.choices[0] && pezzo.choices[0].delta && pezzo.choices[0].delta.content || '';
+      if (!d) continue;
+      testo += d;
+      bolla.textContent = testo.replace(/[*#_`]/g, '');
+      $('msgs').scrollTop = $('msgs').scrollHeight;
+      if (fermata) break;
+    }
+  } finally { clearTimeout(limite); clearTimeout(primo); }
+  testo = testo.replace(/[*#_`]/g, '').trim();
+  // se l'ho interrotta a metà, tengo le frasi complete
+  if (fermata && /[^.!?]$/.test(testo)) testo = (testo.match(/^[\s\S]*[.!?]/) || [''])[0].trim();
+  return testo || null;
 }
 
 function salutoLocale(){

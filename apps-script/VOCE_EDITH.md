@@ -56,8 +56,8 @@ Il repository ora è privato, e con l'account gratuito GitHub Pages funziona sol
 - **Posta:** "Esegui azioni scelte" ora rifà l'azione anche su un mittente già trattato, se cambi la scelta, e alla fine ti dice quante azioni sono riuscite.
 
 ## IA sul telefono (sperimentale, gratis)
-In ⚙︎ accendi **Usa l'IA locale quando non capisco**. La prima volta il telefono scarica un piccolo modello (Gemma 3 di Google, circa 700 MB, meglio col Wi-Fi), poi resta salvato. Gira tutto sul telefono: niente abbonamenti e i tuoi dati non escono da lì.
-- Le risposte su importi e scadenze restano quelle precise di sempre. L'IA risponde solo alle domande che le regole non capiscono, e la bolla porta la scritta "IA locale".
+In ⚙︎ accendi **Due chiacchiere con l'IA locale**. La prima volta il telefono scarica un piccolo modello (Gemma 3 di Google, circa 700 MB, meglio col Wi-Fi), poi resta salvato. Gira tutto sul telefono: niente abbonamenti e i tuoi dati non escono da lì.
+- Fa solo due chiacchiere, e la sua bolla porta la scritta "IA locale". Conti, scadenze e posta restano alle risposte precise di sempre. Il testo compare mentre lo scrive; se dopo 15 secondi non ha finito, si ferma.
 - Serve Chrome aggiornato (sul tuo S23 va bene). Le prime risposte possono metterci qualche secondo, e il telefono si scalda un po' mentre la usi.
 - Se non ti convince, spegni l'interruttore e EDITH torna come prima.
 
