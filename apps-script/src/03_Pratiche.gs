@@ -11,7 +11,7 @@ function elaboraTutto() {
   try {
     const start = Date.now();
     let prima = [];
-    try { prima = pratiche_(); } catch (e) { }
+    try { prima = pratiche_(); } catch (e) { ignora_('pratiche prima del controllo', e); }
     elaboraPratiche_('bollette', start);
     if (!tempoScaduto_(start)) elaboraPratiche_('assicurazioni', start);
     if (!tempoScaduto_(start)) sincronizzaStati();
@@ -275,9 +275,9 @@ function riprovaDaVerificare_(start) {
             setCell_(sh, map, r._row, 'STATO PAGAMENTO', scad < oggi_() ? STATO.SCADUTA : STATO.DA_PAGARE);
             nota += ': completata da sola';
             sistemate++;
-            if (!r['TASK ID'] && scad > new Date(Date.now() - 30 * 864e5)) { try { creaPromemoria_(sh, map, r._row, tipoPratica); } catch (e) { } }
+            if (!r['TASK ID'] && scad > new Date(Date.now() - 30 * 864e5)) { try { creaPromemoria_(sh, map, r._row, tipoPratica); } catch (e) { ignora_('promemoria riga ' + r._row, e); } }
           } else nota += ': ancora incompleta, controllala a mano';
-          if (tipoPratica === 'bollette' && d.testo) { try { salvaOfferta_(estraiOfferta_(d.testo), r['FORNITORE'], r['FORNITURA'] || d.tipo, r['DATA EMISSIONE'], r['LINK MAIL']); } catch (e) { } }
+          if (tipoPratica === 'bollette' && d.testo) { try { salvaOfferta_(estraiOfferta_(d.testo), r['FORNITORE'], r['FORNITURA'] || d.tipo, r['DATA EMISSIONE'], r['LINK MAIL']); } catch (e) { ignora_('offerta riga ' + r._row, e); } }
         }
       } catch (e) {
         if (eLimiteGoogle_(e)) return;
@@ -286,6 +286,6 @@ function riprovaDaVerificare_(start) {
       setCell_(sh, map, r._row, 'NOTE OCR', String(r['NOTE OCR'] || '') + ' · ' + nota);
     }
   });
-  if (sistemate) { log_('Da verificare', sistemate + ' pratiche completate da sola'); try { aggiornaDashboard(); } catch (e) { } }
+  if (sistemate) { log_('Da verificare', sistemate + ' pratiche completate da sola'); try { aggiornaDashboard(); } catch (e) { ignora_('dashboard', e); } }
   return sistemate;
 }

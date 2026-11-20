@@ -125,6 +125,9 @@ function euro_(n) {
   return '€ ' + n.toFixed(2).replace('.', ',');
 }
 
+/** Per gli errori che non devono fermare il lavoro: niente più catch vuoti, almeno una riga nel LOG. */
+function ignora_(dove, e) { log_('Errore ignorato', dove + ': ' + (e && e.message || e)); }
+
 function log_(azione, dettaglio) {
   try {
     const sh = sheet_(CONFIG.SHEET_LOG);

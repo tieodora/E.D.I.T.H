@@ -211,6 +211,9 @@ function euro_(n) {
   return '€ ' + n.toFixed(2).replace('.', ',');
 }
 
+/** Per gli errori che non devono fermare il lavoro: niente più catch vuoti, almeno una riga nel LOG. */
+function ignora_(dove, e) { log_('Errore ignorato', dove + ': ' + (e && e.message || e)); }
+
 function log_(azione, dettaglio) {
   try {
     const sh = sheet_(CONFIG.SHEET_LOG);
@@ -459,7 +462,7 @@ function elaboraTutto() {
   try {
     const start = Date.now();
     let prima = [];
-    try { prima = pratiche_(); } catch (e) { }
+    try { prima = pratiche_(); } catch (e) { ignora_('pratiche prima del controllo', e); }
     elaboraPratiche_('bollette', start);
     if (!tempoScaduto_(start)) elaboraPratiche_('assicurazioni', start);
     if (!tempoScaduto_(start)) sincronizzaStati();
@@ -723,9 +726,9 @@ function riprovaDaVerificare_(start) {
             setCell_(sh, map, r._row, 'STATO PAGAMENTO', scad < oggi_() ? STATO.SCADUTA : STATO.DA_PAGARE);
             nota += ': completata da sola';
             sistemate++;
-            if (!r['TASK ID'] && scad > new Date(Date.now() - 30 * 864e5)) { try { creaPromemoria_(sh, map, r._row, tipoPratica); } catch (e) { } }
+            if (!r['TASK ID'] && scad > new Date(Date.now() - 30 * 864e5)) { try { creaPromemoria_(sh, map, r._row, tipoPratica); } catch (e) { ignora_('promemoria riga ' + r._row, e); } }
           } else nota += ': ancora incompleta, controllala a mano';
-          if (tipoPratica === 'bollette' && d.testo) { try { salvaOfferta_(estraiOfferta_(d.testo), r['FORNITORE'], r['FORNITURA'] || d.tipo, r['DATA EMISSIONE'], r['LINK MAIL']); } catch (e) { } }
+          if (tipoPratica === 'bollette' && d.testo) { try { salvaOfferta_(estraiOfferta_(d.testo), r['FORNITORE'], r['FORNITURA'] || d.tipo, r['DATA EMISSIONE'], r['LINK MAIL']); } catch (e) { ignora_('offerta riga ' + r._row, e); } }
         }
       } catch (e) {
         if (eLimiteGoogle_(e)) return;
@@ -734,7 +737,7 @@ function riprovaDaVerificare_(start) {
       setCell_(sh, map, r._row, 'NOTE OCR', String(r['NOTE OCR'] || '') + ' · ' + nota);
     }
   });
-  if (sistemate) { log_('Da verificare', sistemate + ' pratiche completate da sola'); try { aggiornaDashboard(); } catch (e) { } }
+  if (sistemate) { log_('Da verificare', sistemate + ' pratiche completate da sola'); try { aggiornaDashboard(); } catch (e) { ignora_('dashboard', e); } }
   return sistemate;
 }
 
@@ -1401,7 +1404,7 @@ function reportMailPesanti() {
       (m.payload.headers || []).forEach(x => { h[x.name.toLowerCase()] = x.value; });
       righe.push([false, new Date(Number(m.internalDate)), h['from'] || '', h['subject'] || '',
         round2_(Number(m.sizeEstimate) / 1048576), 'https://mail.google.com/mail/u/0/#all/' + m.threadId, id]);
-    } catch (e) {}
+    } catch (e) { ignora_('mail pesante ' + id, e); }
   }
   righe.sort((a, b) => b[4] - a[4]);
   const top = righe.slice(0, CONFIG.PESANTI_MAX);
@@ -1559,17 +1562,11 @@ function formattaPratiche_(sh, map) {
  * Nessun servizio esterno, nessun costo, i dati restano nel tuo account Google.
  */
 
-function doGet(e) {
-  // L'app ora vive su GitHub Pages. Da qui l'interfaccia si apre solo con il token nell'indirizzo
-  // (…/exec?k=TOKEN), così chi conosce l'URL del deployment "Chiunque" non vede niente.
-  const k = e && e.parameter && e.parameter.k;
-  if (!verificaToken_(k).ok) {
-    return HtmlService.createHtmlOutput('<p style="font-family:sans-serif;padding:24px">EDITH è privata.</p>').setTitle('EDITH');
-  }
-  return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('EDITH')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
-    .setFaviconUrl('https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png');
+function doGet() {
+  // L'app vive su GitHub Pages e parla con lo script solo via doPost, con il token.
+  // Da qui non si serve più nessuna pagina: con google.script.run chiunque avesse il token
+  // potrebbe chiamare tutte le funzioni dello script (anche creaTokenVoce), non solo quelle dell'elenco di doPost.
+  return HtmlService.createHtmlOutput('<p style="font-family:sans-serif;padding:24px">EDITH è privata.</p>').setTitle('EDITH');
 }
 
 /** Prova gli avvisi: manda subito una mail di test e scrive l'esito nel registro. */
@@ -1588,6 +1585,16 @@ function uguali_(a, b) {
   return diff === 0;
 }
 
+/** Errore pensato per essere mostrato nell'app: tutti gli altri arrivano come messaggio generico. */
+function rifiuto_(messaggio) { const e = new Error(messaggio); e.perApp = true; return e; }
+
+/** La riga deve essere un numero intero tra la prima riga di dati (2) e l'ultima: mai l'intestazione. */
+function rigaValida_(sh, riga) {
+  const n = Number(riga);
+  if (!Number.isInteger(n) || n < 2 || n > sh.getLastRow()) throw rifiuto_('Riga non valida');
+  return n;
+}
+
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -1598,8 +1605,9 @@ function doPost(e) {
   try { req = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return json_({ ok: false, errore: 'Richiesta non valida' }); }
   const v = verificaToken_(req.k);
   if (!v.ok) {
+    // niente attesa: un token di 160 bit non si indovina per tentativi, e ogni attesa terrebbe occupata
+    // una delle ~30 esecuzioni contemporanee di Apps Script (chi bombarda l'URL bloccherebbe anche te)
     tentativoFallito_(v.motivo);
-    Utilities.sleep(1500);
     return json_({ ok: false, errore: v.motivo === 'token scaduto' ? 'Token scaduto: rilancia creaTokenVoce in Apps Script e reinseriscilo' : 'Token non valido' });
   }
   // Le funzioni dell'app. Quelle che cancellano mail chiedono conferma nell'app e mandano tutto nel Cestino.
@@ -1615,8 +1623,8 @@ function doPost(e) {
   try {
     return json_(Object.assign({ ok: true, r: f.apply(null, Array.isArray(req.a) ? req.a.slice(0, 4) : []) }, v.nuovo ? { k: v.nuovo } : {}));
   } catch (err) {
-    log_('Errore EDITH Voce', req.f + ' -> ' + err.message);
-    return json_({ ok: false, errore: err.message });
+    log_('Errore EDITH Voce', req.f + ' -> ' + err.message + (err.stack ? '\n' + err.stack : ''));
+    return json_({ ok: false, errore: err.perApp ? err.message : 'Qualcosa non ha funzionato: il dettaglio è nel foglio LOG' });
   }
 }
 
@@ -1732,8 +1740,9 @@ function apiElabora() {
 function apiSegnaPagata(foglio, riga) {
   svuotaCache_();
   const sh = ss_().getSheetByName(foglio);
-  if (!sh || [CONFIG.SHEET_BOLLETTE, CONFIG.SHEET_ASSICURAZIONI].indexOf(foglio) === -1) throw new Error('Foglio non valido');
+  if (!sh || [CONFIG.SHEET_BOLLETTE, CONFIG.SHEET_ASSICURAZIONI].indexOf(foglio) === -1) throw rifiuto_('Foglio non valido');
   const map = colMap_(sh);
+  riga = rigaValida_(sh, riga);
   setCell_(sh, map, riga, 'STATO PAGAMENTO', STATO.CONCLUSA);
   setCell_(sh, map, riga, 'PAGATA IL', new Date());
   const r = leggiRiga_(sh, map, riga);
@@ -1757,9 +1766,10 @@ function righeFoglio_(nome) {
 function apiIscrizioni() { return { righe: righeFoglio_(CONFIG.SHEET_ISCRIZIONI), azioni: AZIONI_ISCRIZIONE }; }
 function apiAnalizzaIscrizioni() { analizzaIscrizioni(); return apiIscrizioni(); }
 function apiSalvaAzione(riga, azione) {
-  if (AZIONI_ISCRIZIONE.indexOf(azione) === -1) throw new Error('Azione non valida');
+  if (AZIONI_ISCRIZIONE.indexOf(azione) === -1) throw rifiuto_('Azione non valida');
   const sh = sheet_(CONFIG.SHEET_ISCRIZIONI);
   const map = colMap_(sh);
+  riga = rigaValida_(sh, riga);
   setCell_(sh, map, riga, 'AZIONE', azione);
   // nuova scelta = nuova azione da eseguire, anche se su quel mittente avevi già fatto qualcosa
   setCell_(sh, map, riga, 'ESITO', '');
@@ -1786,24 +1796,629 @@ function apiAnteprimaPulizia() { anteprimaPulizia(); return apiPulizia(); }
 function apiReportPesanti() { reportMailPesanti(); return apiPulizia(); }
 function apiSpunta(foglio, riga, colonna, valore) {
   const ammessi = { [CONFIG.SHEET_PULIZIA]: 'ESEGUI', [CONFIG.SHEET_PESANTI]: 'CESTINA' };
-  if (ammessi[foglio] !== colonna) throw new Error('Campo non modificabile');
+  if (ammessi[foglio] !== colonna) throw rifiuto_('Campo non modificabile');
   const sh = sheet_(foglio);
-  setCell_(sh, colMap_(sh), riga, colonna, valore === true);
+  setCell_(sh, colMap_(sh), rigaValida_(sh, riga), colonna, valore === true);
   return true;
 }
 /** Chiamate solo dopo la conferma mostrata nell'app. */
 /** Spunta o toglie la spunta a tutte le righe in un colpo solo (stessi campi ammessi di apiSpunta). */
 function apiSpuntaTutte(foglio, colonna, valore) {
   const ammessi = { [CONFIG.SHEET_PULIZIA]: 'ESEGUI', [CONFIG.SHEET_PESANTI]: 'CESTINA' };
-  if (ammessi[foglio] !== colonna) throw new Error('Campo non modificabile');
+  if (ammessi[foglio] !== colonna) throw rifiuto_('Campo non modificabile');
   const sh = sheet_(foglio), map = colMap_(sh), n = sh.getLastRow() - 1;
   const col = map[norm_(colonna)];
-  if (col === undefined) throw new Error('Colonna ' + colonna + ' non trovata');
+  if (col === undefined) throw rifiuto_('Colonna ' + colonna + ' non trovata');
   if (n > 0) sh.getRange(2, col + 1, n, 1).setValues(Array.from({ length: n }, () => [valore === true]));
   return true;
 }
 function apiEseguiPulizia() { eseguiPulizia(true); return apiPulizia(); }
 function apiCestinaPesanti() { cestinaMailPesantiSelezionate(true); return apiPulizia(); }
+
+/**
+ * EDITH – riepilogo settimanale, avvisi via mail e briefing del mattino.
+ * Dopo aver incollato il codice lancia una volta installaNovita (oppure setup).
+ * Le mail partono solo verso il tuo indirizzo, dal tuo account. Nessun servizio esterno.
+ */
+
+// L'indirizzo del proprietario, letto dal profilo Gmail (non serve un'autorizzazione in più)
+function mioIndirizzo_() { return Gmail.Users.getProfile('me').emailAddress; }
+
+/** Manda un avviso a te stesso, al massimo uno ogni 6 ore per lo stesso motivo. */
+function notifica_(oggetto, righe, chiave) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const k = 'AVVISO_' + (chiave || oggetto).replace(/\W+/g, '_').slice(0, 60);
+    const ultimo = Number(props.getProperty(k) || 0);
+    if (Date.now() - ultimo < 6 * 3600e3) return false;
+    const testo = [].concat(righe).join('\n');
+    const html = '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">' +
+      [].concat(righe).map(r => '<p style="margin:0 0 8px">' + escHtml_(r) + '</p>').join('') +
+      '<p style="color:#888;font-size:12px">Messaggio automatico di EDITH.</p></div>';
+    GmailApp.sendEmail(mioIndirizzo_(), '[EDITH] ' + oggetto, testo, { htmlBody: html, name: 'EDITH' });
+    props.setProperty(k, String(Date.now()));
+    return true;
+  } catch (e) { log_('Avviso non inviato', oggetto + ' -> ' + e.message); return false; }
+}
+
+function escHtml_(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+/** Chiave stabile di una pratica, per capire quali sono nuove. */
+function chiavePratica_(p) { return p.foglio + '#' + p.riga; }
+
+/** Dopo un'elaborazione: avvisa se ci sono nuove pratiche che non sono riuscita a leggere bene. */
+function avvisaNuoveDaVerificare_(prima) {
+  const visti = {};
+  prima.forEach(p => { visti[chiavePratica_(p)] = p.stato; });
+  const nuove = pratiche_().filter(p => p.stato === STATO.DA_VERIFICARE && visti[chiavePratica_(p)] !== STATO.DA_VERIFICARE);
+  if (!nuove.length) return;
+  notifica_(nuove.length === 1 ? 'Una pratica da controllare' : nuove.length + ' pratiche da controllare',
+    ['Non sono riuscita a leggere tutti i dati di ' + (nuove.length === 1 ? 'questa pratica' : 'queste pratiche') + ':']
+      .concat(nuove.map(p => '• ' + p.tipo + (p.chi ? ' ' + p.chi : '') + ' – ' + (p.oggetto || 'senza oggetto') + (p.link ? ' – ' + p.link : '')))
+      .concat(['Completa i campi mancanti nello Sheet: il promemoria si crea da solo.']),
+    'daverificare_' + nuove.map(chiavePratica_).join('_'));
+}
+
+// ---------------------------------------------------------------- riepilogo del lunedì
+
+function testoRiepilogo_() {
+  const P = pratiche_();
+  const oggi = iso_(new Date()), tra7 = iso_(new Date(Date.now() + 7 * 864e5));
+  const aperte = P.filter(p => p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA);
+  const settimana = aperte.filter(p => p.scadenza && p.scadenza <= tra7).sort((a, b) => a.scadenza.localeCompare(b.scadenza));
+  const dopo = aperte.filter(p => !p.scadenza || p.scadenza > tra7);
+  const verifica = P.filter(p => p.stato === STATO.DA_VERIFICARE);
+  const r = ['Buon lunedì, Teo. Ecco la tua settimana.'];
+  r.push(settimana.length ? 'Da pagare entro ' + data_(tra7) + ':' : 'Nessun pagamento in scadenza nei prossimi 7 giorni.');
+  settimana.forEach(p => r.push('• ' + descr_(p) + (p.scadenza < oggi ? ' – GIÀ SCADUTA' : '')));
+  if (dopo.length) r.push('Più avanti: ' + dopo.map(descr_).join('; ') + '.');
+  if (verifica.length) {
+    r.push('Da controllare nello Sheet (' + verifica.length + '):');
+    verifica.forEach(p => r.push('• ' + p.tipo + (p.chi ? ' ' + p.chi : '') + ' – ' + (p.oggetto || '') + (p.link ? ' – ' + p.link : '')));
+  }
+  try { const an = anomalie_(P); if (an.length) { r.push('Anomalie:'); an.forEach(x => r.push('• ' + x.testo)); } } catch (e) { ignora_('anomalie nel riepilogo', e); }
+  const s = quota_();
+  if (s) r.push('Spazio Google: ' + s.usato + ' GB su ' + s.limite + ' GB (' + Math.round(s.usato / s.limite * 100) + '%).');
+  return { righe: r, settimana, verifica };
+}
+
+/** Trigger del lunedì mattina. */
+function riepilogoSettimanale() {
+  try {
+    const t = testoRiepilogo_();
+    const ogg = t.settimana.length ? t.settimana.length + (t.settimana.length === 1 ? ' pagamento' : ' pagamenti') + ' questa settimana' : 'Settimana tranquilla';
+    PropertiesService.getScriptProperties().deleteProperty('AVVISO_riepilogo');
+    notifica_(ogg + (t.verifica.length ? ', ' + t.verifica.length + ' da controllare' : ''), t.righe, 'riepilogo');
+  } catch (e) {
+    notifica_('Errore nel riepilogo settimanale', ['Il riepilogo del lunedì non è partito: ' + e.message], 'errore_riepilogo');
+  }
+}
+
+// ---------------------------------------------------------------- briefing del mattino
+
+function briefing_(P) {
+  const oggi = new Date(), tra7 = iso_(new Date(Date.now() + 7 * 864e5));
+  const giorni = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
+  const aperte = P.filter(p => p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA)
+    .sort((a, b) => (a.scadenza || '9999').localeCompare(b.scadenza || '9999'));
+  const vicine = aperte.filter(p => p.scadenza && p.scadenza <= tra7);
+  const verifica = P.filter(p => p.stato === STATO.DA_VERIFICARE).length;
+  let t = 'Oggi è ' + giorni[oggi.getDay()] + ' ' + oggi.getDate() + ' ' + NOMI_MESI[oggi.getMonth()] + '. ';
+  if (vicine.length) t += 'In settimana scade ' + vicine.map(p => p.tipo + (p.chi ? ' ' + p.chi : '') + ' da ' + eur_(p.importo) + ' il ' + data_(p.scadenza).slice(0, 5)).join(', e ') + '. ';
+  else if (aperte.length) t += 'Niente in scadenza questa settimana; il prossimo pagamento è ' + descr_(aperte[0]) + '. ';
+  else t += 'Non hai pagamenti in sospeso. ';
+  if (verifica) t += verifica === 1 ? 'C\'è una pratica da controllare. ' : 'Ci sono ' + verifica + ' pratiche da controllare. ';
+  try {
+    const gravi = anomalie_(P).filter(a => a.livello !== 'basso' && !/scaduta da/.test(a.testo));
+    if (gravi.length) t += 'Attenzione: ' + minuscola_(gravi[0].testo) + (gravi.length > 1 ? ' E c\'è ' + (gravi.length === 2 ? 'un\'altra cosa' : 'altro') + ': chiedimi "ci sono anomalie?".' : '') + ' ';
+  } catch (e) { ignora_('anomalie nel briefing', e); }
+  return t.trim();
+}
+
+/** Il primo "Edith, sono io" della mattina dà il briefing completo, poi solo il saluto. */
+function primoDelGiorno_() {
+  const props = PropertiesService.getScriptProperties(), oggi = iso_(new Date());
+  if (props.getProperty('ULTIMO_BRIEFING') === oggi) return false;
+  props.setProperty('ULTIMO_BRIEFING', oggi);
+  return true;
+}
+
+// ---------------------------------------------------------------- installazione
+
+/** Lancia una volta dopo aver incollato il nuovo codice: aggiunge il trigger del lunedì. */
+function installaNovita() {
+  const esiste = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'riepilogoSettimanale');
+  if (!esiste) ScriptApp.newTrigger('riepilogoSettimanale').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
+  PropertiesService.getScriptProperties().deleteProperty('AVVISO_installazione');
+  const ok = notifica_('Avvisi attivi', ['Da ora ti scrivo qui se qualcosa va storto o se non riesco a leggere una bolletta, e ogni lunedì alle 8 ti mando il riepilogo della settimana.'], 'installazione');
+  Logger.log(ok ? 'Fatto: riepilogo ogni lunedì alle 8 e avvisi via mail attivi. Ti ho mandato una mail di prova.' : 'Trigger installato, ma la mail di prova NON è partita: guarda il foglio LOG.');
+}
+
+// ---------------------------------------------------------------- skill: controllo anomalie
+
+/**
+ * Cerca cose strane nei dati e nel sistema. Ogni anomalia: { livello: 'alto'|'medio'|'basso', testo }.
+ * Non cambia niente: segnala soltanto.
+ */
+function anomalie_(P) {
+  P = P || pratiche_();
+  const out = [], oggi = iso_(new Date());
+  const giorniDa = s => Math.round((new Date(oggi + 'T12:00:00') - new Date(s + 'T12:00:00')) / 864e5);
+  const nome = p => p.tipo + (p.chi ? ' ' + p.chi : '');
+
+  // 1. pagamenti scaduti e non segnati
+  P.filter(p => (p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA) && p.scadenza && p.scadenza < oggi)
+    .forEach(p => out.push({ livello: 'alto', testo: nome(p) + ' da ' + eur_(p.importo) + ' è scaduta da ' + giorniDa(p.scadenza) + ' giorni e non risulta pagata.' }));
+
+  // 2. bollette molto più care del solito (stesso fornitore e tipo, almeno 2 precedenti)
+  const B = P.filter(p => p.area === 'bollette' && p.importo !== null && p.rif);
+  const gruppi = {};
+  B.forEach(p => { const k = p.tipo + '|' + p.chi; (gruppi[k] = gruppi[k] || []).push(p); });
+  Object.keys(gruppi).forEach(k => {
+    const g = gruppi[k].sort((a, b) => b.rif.localeCompare(a.rif));
+    if (g.length < 3) return;
+    const ult = g[0], media = g.slice(1).reduce((s, p) => s + p.importo, 0) / (g.length - 1);
+    if (media > 0 && ult.importo > media * 1.4 && ult.importo - media > 15)
+      out.push({ livello: 'medio', testo: 'L\'ultima bolletta ' + nome(ult) + ' (' + eur_(ult.importo) + ') è il ' + Math.round((ult.importo / media - 1) * 100) + '% sopra la tua media di ' + eur_(media) + '.' });
+  });
+
+  // 3. fornitori che non mandano bollette da tanto
+  const fornitori = {};
+  B.forEach(p => { if (!fornitori[p.chi] || p.rif > fornitori[p.chi]) fornitori[p.chi] = p.rif; });
+  Object.keys(fornitori).forEach(chi => {
+    const g = giorniDa(fornitori[chi]);
+    if (chi && g > 75) out.push({ livello: 'medio', testo: 'Da ' + chi + ' non arriva una bolletta da ' + g + ' giorni (l\'ultima è del ' + data_(fornitori[chi]) + '). Controlla che la mail non sia finita altrove o che l\'etichetta "bollettazione" sia applicata.' });
+  });
+
+  // 4. rate di assicurazione previste e mai arrivate
+  const A = P.filter(p => p.area === 'assicurazioni');
+  A.filter(p => p.prossima && p.prossima < oggi && giorniDa(p.prossima) > 7).forEach(p => {
+    const arrivata = A.some(x => x !== p && x.chi === p.chi && (x.scadenza || x.rif) >= p.prossima.slice(0, 7));
+    if (!arrivata) out.push({ livello: 'medio', testo: 'Era prevista una rata ' + nome(p) + ' intorno al ' + data_(p.prossima) + ', ma non ho trovato la mail.' });
+  });
+
+  // 5. pratiche lette male
+  const ver = P.filter(p => p.stato === STATO.DA_VERIFICARE);
+  if (ver.length) out.push({ livello: 'basso', testo: (ver.length === 1 ? 'Una pratica non è stata letta del tutto' : ver.length + ' pratiche non sono state lette del tutto') + ': ' + ver.slice(0, 3).map(p => p.oggetto || nome(p)).join('; ') + '.' });
+
+  // 6. doppioni tolti dal conteggio
+  // offerte: condizioni economiche in scadenza (dopo, di solito, il prezzo cambia)
+  offerte_().filter(o => o.scadenza).forEach(o => {
+    const g = -giorniDa(o.scadenza);
+    if (g < 0 && g > -120) out.push({ livello: 'medio', testo: 'Le condizioni economiche dell\'offerta ' + o.chi + (o.offerta ? ' "' + o.offerta + '"' : '') + ' sono scadute il ' + data_(o.scadenza) + ': controlla il nuovo prezzo nella prossima bolletta.' });
+    else if (g >= 0 && g <= 60) out.push({ livello: 'medio', testo: 'Le condizioni economiche dell\'offerta ' + o.chi + (o.offerta ? ' "' + o.offerta + '"' : '') + ' scadono il ' + data_(o.scadenza) + ', tra ' + g + ' giorni: è il momento di confrontare le offerte.' });
+  });
+  if (DOPPIONI_ > 0) out.push({ livello: 'basso', testo: 'Nello Sheet ' + (DOPPIONI_ === 1 ? 'c\'è 1 riga doppia' : 'ci sono ' + DOPPIONI_ + ' righe doppie') + ' (per esempio mail inoltrate con "Fwd:"). Non le conto due volte, ma puoi cancellarle.' });
+
+  // 7. il controllo automatico è fermo?
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const ultimo = Number(props.getProperty('ULTIMO_CONTROLLO') || 0);
+    const trigger = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'elaboraTutto');
+    if (!trigger) out.push({ livello: 'alto', testo: 'Il controllo automatico della posta non è attivo. In Apps Script lancia setup per riattivarlo.' });
+    else if (ultimo && Date.now() - ultimo > 3 * 3600e3) out.push({ livello: 'alto', testo: 'L\'ultimo controllo automatico della posta è di ' + Math.round((Date.now() - ultimo) / 3600e3) + ' ore fa: dovrebbe girare ogni ora.' });
+  } catch (e) { ignora_('controllo automatico', e); }
+
+  // 8. spazio quasi pieno
+  const s = quota_();
+  if (s && s.limite && s.usato / s.limite > 0.85) out.push({ livello: 'medio', testo: 'Lo spazio Google è al ' + Math.round(s.usato / s.limite * 100) + '%: nella sezione Posta trovi cosa liberare.' });
+
+  const ordine = { alto: 0, medio: 1, basso: 2 };
+  return out.sort((a, b) => ordine[a.livello] - ordine[b.livello]);
+}
+
+function testoAnomalie_(P) {
+  const a = anomalie_(P);
+  if (!a.length) return 'Ho controllato tutto: nessuna anomalia. Pagamenti, bollette, rate e controllo automatico sono in ordine.';
+  return (a.length === 1 ? 'Ho trovato una cosa da guardare: ' + minuscola_(a[0].testo) : 'Ho trovato ' + a.length + ' cose da guardare. ' + a.map((x, i) => (i + 1) + ') ' + x.testo).join(' '));
+}
+
+function minuscola_(s) { return /^[A-Z](?![A-Z])/.test(s) && !/^(AXA|Sara|SOMET|Piemonte)/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+
+/**
+ * EDITH – sicurezza dell'app sul telefono.
+ * - Il token dura 90 giorni. Dopo 30 giorni di uso l'app ne riceve uno nuovo da sola, senza che tu faccia niente;
+ *   il vecchio resta valido ancora 7 giorni, così un secondo telefono non resta bloccato all'improvviso.
+ * - Se non apri l'app per più di 90 giorni il token scade: rilancia creaTokenVoce e reinseriscilo.
+ * - Ogni accesso finisce nel foglio ACCESSI. Se qualcuno sbaglia il token 5 volte in un'ora ti arriva una mail.
+ */
+
+const TOKEN_DURATA_GG = 90, TOKEN_RINNOVO_GG = 30, TOKEN_GRAZIA_GG = 7;
+
+function nuovoToken_() { return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8); }
+
+/** Lancia una volta (o per bloccare un telefono perso): crea un token nuovo e annulla tutti i precedenti. */
+function creaTokenVoce() {
+  const props = PropertiesService.getScriptProperties();
+  const token = nuovoToken_();
+  props.setProperties({ EDITH_TOKEN: token, EDITH_TOKEN_DATA: String(Date.now()) });
+  props.deleteProperty('EDITH_TOKEN_VECCHIO'); props.deleteProperty('EDITH_TOKEN_VECCHIO_FINO');
+  registraAccesso_('creaTokenVoce', 'nuovo token creato, i precedenti non valgono più');
+  Logger.log('Token creato. Copialo: ' + token);
+  Logger.log('Incollalo nell\'app (ingranaggio › Collegamento) insieme all\'URL del deployment Voce.');
+  Logger.log('Dura 90 giorni e si rinnova da solo ogni 30 giorni mentre usi l\'app.');
+  return token;
+}
+
+/**
+ * Controlla il token. Risponde { ok, nuovo?, motivo? }.
+ * "nuovo" è il token che l'app deve salvare al posto di quello vecchio.
+ */
+function verificaToken_(k) {
+  const props = PropertiesService.getScriptProperties();
+  const p = props.getProperties();
+  const ora = Date.now(), gg = 864e5;
+  if (!p.EDITH_TOKEN || !k) return { ok: false, motivo: 'token mancante' };
+  if (uguali_(k, p.EDITH_TOKEN)) {
+    let data = Number(p.EDITH_TOKEN_DATA || 0);
+    if (!data) { data = ora; props.setProperty('EDITH_TOKEN_DATA', String(ora)); }   // token creato prima di questa versione
+    if (ora - data > TOKEN_DURATA_GG * gg) return { ok: false, motivo: 'token scaduto' };
+    if (ora - data > TOKEN_RINNOVO_GG * gg) {
+      const lock = LockService.getScriptLock();
+      if (lock.tryLock(3000)) {
+        try {
+          const fresco = props.getProperty('EDITH_TOKEN');
+          if (fresco !== p.EDITH_TOKEN) return { ok: true, nuovo: fresco };   // l'ha già rinnovato un'altra richiesta
+          const nuovo = nuovoToken_();
+          props.setProperties({ EDITH_TOKEN: nuovo, EDITH_TOKEN_DATA: String(ora), EDITH_TOKEN_VECCHIO: p.EDITH_TOKEN, EDITH_TOKEN_VECCHIO_FINO: String(ora + TOKEN_GRAZIA_GG * gg) });
+          registraAccesso_('rinnovo', 'token rinnovato automaticamente');
+          return { ok: true, nuovo };
+        } finally { lock.releaseLock(); }
+      }
+    }
+    return { ok: true };
+  }
+  if (p.EDITH_TOKEN_VECCHIO && uguali_(k, p.EDITH_TOKEN_VECCHIO) && ora < Number(p.EDITH_TOKEN_VECCHIO_FINO || 0)) return { ok: true, nuovo: p.EDITH_TOKEN };
+  return { ok: false, motivo: 'token errato' };
+}
+
+/** Registro accessi nel foglio ACCESSI (tiene le ultime 1000 righe). */
+function registraAccesso_(funzione, esito) {
+  try {
+    const sh = sheet_(CONFIG.SHEET_ACCESSI);
+    if (sh.getLastRow() === 0) sh.appendRow(['QUANDO', 'FUNZIONE', 'ESITO']);
+    sh.appendRow([new Date(), funzione, esito]);
+    if (sh.getLastRow() > 1000) sh.deleteRows(2, 200);
+  } catch (e) { console.log('ACCESSI non scrivibile: ' + funzione + ' ' + esito + ' (' + e.message + ')'); }
+}
+
+/** Conta i tentativi falliti: al quinto nella stessa ora manda un avviso. */
+function tentativoFallito_(motivo) {
+  registraAccesso_('accesso', 'RIFIUTATO: ' + motivo);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const ora = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMddHH');
+    const [h, n] = String(props.getProperty('FALLITI') || '').split(':');
+    const conta = h === ora ? Number(n || 0) + 1 : 1;
+    props.setProperty('FALLITI', ora + ':' + conta);
+    if (conta === 5) notifica_('Tentativi di accesso falliti', ['Nell\'ultima ora qualcuno ha provato 5 volte ad aprire EDITH con un token sbagliato (' + motivo + ').',
+      'Se non eri tu, lancia creaTokenVoce in Apps Script: il token cambia e chi ce l\'ha resta fuori. Il registro è nel foglio ACCESSI.'], 'falliti_' + ora);
+  } catch (e) { }
+}
+
+/**
+ * EDITH – l'offerta in corso per ogni fornitura, letta dalle bollette.
+ * Le bollette italiane hanno un riquadro con nome dell'offerta, prezzo, quota fissa e scadenza delle condizioni:
+ * qui lo leggo dal testo dell'OCR e tengo nel foglio OFFERTE una riga per fornitore e fornitura, aggiornata con l'ultima bolletta.
+ */
+
+const COLONNE_OFFERTE = ['FORNITORE', 'FORNITURA', 'OFFERTA', 'MERCATO', 'TIPO PREZZO', 'PREZZO LUCE €/KWH', 'PREZZO GAS €/SMC',
+  'QUOTA FISSA €/MESE', 'POTENZA KW', 'SCADENZA CONDIZIONI', 'CONSUMO ANNUO LUCE KWH', 'CONSUMO ANNUO GAS SMC', 'POD', 'PDR',
+  'DA BOLLETTA DEL', 'LINK MAIL', 'AGGIORNATO'];
+
+/** Numero all'italiana con decimali ("0,123456" o "1.234") → Number. */
+function num_(s) {
+  if (s === undefined || s === null) return null;
+  let t = String(s).replace(/\s/g, '');
+  if (/,/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  const n = parseFloat(t);
+  return isNaN(n) ? null : n;
+}
+
+/** Prezzo unitario vicino a un'unità di misura: "0,1234 €/kWh", "€/kWh 0,1234", "0,1234 euro/kWh". */
+function prezzoUnitario_(t, unita, min, max) {
+  const u = '(?:€|euro|eur)\\s*\\/\\s*' + unita;
+  const pattern = [
+    new RegExp('(\\d+[,.]\\d{2,6})\\s*' + u, 'gi'),
+    new RegExp(u + '\\s*:?\\s*(\\d+[,.]\\d{2,6})', 'gi'),
+  ];
+  // preferisco i valori vicini a "prezzo", "componente energia", "materia"
+  const cand = [];
+  pattern.forEach(re => {
+    let m;
+    while ((m = re.exec(t)) !== null) {
+      const v = num_(m[1]);
+      if (v === null || v < min || v > max) continue;
+      const prima = t.slice(Math.max(0, m.index - 120), m.index).toLowerCase();
+      const peso = /prezzo|componente energia|materia (prima|energia|gas)|costo (dell )?energia|spesa per la materia|\bpe\b|\bf0\b|monorari|cmem|prezzo gas/.test(prima) ? 2
+        : /trasporto|oneri|accise|iva|distribuzione|perequazione|imposte/.test(prima) ? -1 : 0;
+      cand.push({ v: v, peso: peso, pos: m.index });
+    }
+  });
+  if (!cand.length) return null;
+  cand.sort((a, b) => b.peso - a.peso || a.pos - b.pos);
+  return cand[0].peso < 0 ? null : cand[0].v;
+}
+
+/** Dopo una delle parole chiave, il primo testo "nome" (per il nome dell'offerta). */
+function nomeOfferta_(t) {
+  const re = /(?:nome (?:dell[' ]?)?offerta|denominazione (?:dell[' ]?)?offerta|offerta commerciale|nome (?:del )?prodotto|offerta sottoscritta|la tua offerta|offerta)\s*[:\-]\s*([^\n]{3,60})/i;
+  const m = t.match(re);
+  if (!m) return '';
+  return m[1].replace(/\s*(codice|cod\.|offerta n|valid|mercato|prezzo|scadenza).*$/i, '').replace(/[.;,]+$/, '').trim();
+}
+
+/** Estrae i dettagli dell'offerta dal testo di una bolletta. Restituisce null se non trova niente di utile. */
+function estraiOfferta_(testo) {
+  const t = String(testo || '').replace(/ /g, ' ').replace(/[ \t]+/g, ' ');
+  const low = t.toLowerCase();
+  const o = {};
+  o.offerta = nomeOfferta_(t);
+  o.mercato = /servizio di tutela|maggior tutela|tutela della vulnerabilita|tutela vulnerabil/.test(low) ? 'Tutela'
+    : /tutele graduali|\bstg\b/.test(low) ? 'Tutele graduali' : /mercato libero/.test(low) ? 'Libero' : '';
+  const indicizzato = /\bpun\b|\bpsv\b|indicizzat|variabile|spread|\bttf\b/.test(low);
+  const fisso = /prezzo fisso|fisso per|bloccato|invariabile|prezzo fisso e invariabile/.test(low);
+  o.tipoPrezzo = fisso && !/\bpun\b.*\+|spread/.test(low) ? 'Fisso' : indicizzato ? (/\bpun\b/.test(low) ? 'Variabile (PUN)' : /\bpsv\b/.test(low) ? 'Variabile (PSV)' : 'Variabile') : '';
+  o.prezzoLuce = prezzoUnitario_(t, 'kwh', 0.03, 1.5);
+  o.prezzoGas = prezzoUnitario_(t, 'smc', 0.1, 5);
+  const qf = t.match(/(?:quota fissa|costo fisso|commercializzazione|corrispettivo fisso|canone)[^\n€]{0,80}?(?:€\s*|euro\s*)?(\d+[,.]\d{2,4})\s*(?:€|euro)?\s*\/\s*(mese|anno)/i)
+    || t.match(/(?:quota fissa|costo fisso|commercializzazione|corrispettivo fisso)[^\n]{0,60}?(?:€|euro)\s*\/\s*(?:pdp\s*\/\s*)?(mese|anno)\s*:?\s*(\d+[,.]\d{2,4})/i);
+  if (qf) {
+    const [val, per] = /\d/.test(qf[1]) ? [qf[1], qf[2]] : [qf[2], qf[1]];
+    const v = num_(val);
+    if (v !== null) o.quotaFissa = Math.round((per.toLowerCase() === 'anno' ? v / 12 : v) * 100) / 100;
+  }
+  const pot = t.match(/potenza (?:contrattualmente )?impegnata[^\d\n]{0,25}(\d+(?:[,.]\d+)?)\s*kw\b/i);
+  if (pot) o.potenza = num_(pot[1]);
+  const scad = dataDopo_(t, ['condizioni economiche[^\\n]{0,60}?(?:fino al|valide fino|scadenza|scadono il|scade il)', 'scadenza (?:delle )?condizioni economiche',
+    'prezzo (?:bloccato|fisso)[^\\n]{0,30}?fino al', 'valid[ae] fino al', 'offerta valida fino'], 40);
+  if (scad) o.scadenzaCondizioni = scad;
+  const cl = t.match(/consumo annuo[^\n\d]{0,40}(\d{1,3}(?:\.\d{3})*|\d+)\s*kwh/i);
+  if (cl) o.consumoLuce = num_(cl[1]);
+  const cg = t.match(/consumo annuo[^\n\d]{0,40}(\d{1,3}(?:\.\d{3})*|\d+)\s*smc/i);
+  if (cg) o.consumoGas = num_(cg[1]);
+  const pod = t.match(/\b(IT\s?\d{3}\s?E\s?\d{7,8}[A-Z0-9]?)\b/i);
+  if (pod) o.pod = pod[1].replace(/\s/g, '').toUpperCase();
+  const pdr = t.match(/\bPDR\b[^\d\n]{0,25}(\d{14})\b/i);
+  if (pdr) o.pdr = pdr[1];
+  const utili = ['offerta', 'prezzoLuce', 'prezzoGas', 'quotaFissa', 'scadenzaCondizioni', 'tipoPrezzo'].filter(k => o[k]).length;
+  return utili >= 2 ? o : null;
+}
+
+/** Salva l'offerta letta da una bolletta (tiene la più recente per fornitore e fornitura). */
+function salvaOfferta_(o, fornitore, fornitura, emissione, link) {
+  if (!o) return false;
+  const sh = sheet_(CONFIG.SHEET_OFFERTE);
+  const map = ensureHeaders_(sh, COLONNE_OFFERTE);
+  const righe = readRows_(sh).rows;
+  const chi = String(fornitore || '').split(':')[0].trim();
+  const es = righe.find(r => norm_(r['FORNITORE']) === norm_(chi) && norm_(r['FORNITURA']) === norm_(fornitura));
+  if (es && es['DA BOLLETTA DEL'] instanceof Date && emissione && es['DA BOLLETTA DEL'] > emissione) return false;
+  const obj = {
+    'FORNITORE': chi, 'FORNITURA': fornitura, 'OFFERTA': o.offerta || '', 'MERCATO': o.mercato || '', 'TIPO PREZZO': o.tipoPrezzo || '',
+    'PREZZO LUCE €/KWH': o.prezzoLuce || '', 'PREZZO GAS €/SMC': o.prezzoGas || '', 'QUOTA FISSA €/MESE': o.quotaFissa || '',
+    'POTENZA KW': o.potenza || '', 'SCADENZA CONDIZIONI': o.scadenzaCondizioni || '', 'CONSUMO ANNUO LUCE KWH': o.consumoLuce || '',
+    'CONSUMO ANNUO GAS SMC': o.consumoGas || '', 'POD': o.pod || '', 'PDR': o.pdr || '', 'DA BOLLETTA DEL': emissione || '', 'LINK MAIL': link || '', 'AGGIORNATO': new Date(),
+  };
+  if (es) {
+    // se questa bolletta non riporta un campo, tengo quello che sapevo già (per esempio il POD)
+    Object.keys(obj).forEach(k => { if (obj[k] === '' && es[k] !== '' && es[k] !== undefined) obj[k] = es[k]; });
+    Object.keys(obj).forEach(k => setCell_(sh, map, es._row, k, obj[k]));
+  } else appendObj_(sh, map, obj);
+  return true;
+}
+
+/** Le offerte per l'app e per Edith, in formato semplice. */
+function offerte_() {
+  try {
+    const sh = ss_().getSheetByName(CONFIG.SHEET_OFFERTE);
+    if (!sh || sh.getLastRow() < 2) return [];
+    const n = v => (typeof v === 'number' ? v : null);
+    return readRows_(sh).rows.filter(r => r['FORNITORE']).map(r => ({
+      chi: String(r['FORNITORE']), tipo: String(r['FORNITURA'] || ''), offerta: String(r['OFFERTA'] || ''), mercato: String(r['MERCATO'] || ''),
+      tipoPrezzo: String(r['TIPO PREZZO'] || ''), prezzoLuce: n(r['PREZZO LUCE €/KWH']), prezzoGas: n(r['PREZZO GAS €/SMC']),
+      quotaFissa: n(r['QUOTA FISSA €/MESE']), potenza: n(r['POTENZA KW']), scadenza: iso_(r['SCADENZA CONDIZIONI']),
+      consumoLuce: n(r['CONSUMO ANNUO LUCE KWH']), consumoGas: n(r['CONSUMO ANNUO GAS SMC']), pod: String(r['POD'] || ''), pdr: String(r['PDR'] || ''),
+      da: iso_(r['DA BOLLETTA DEL']), link: String(r['LINK MAIL'] || ''),
+    }));
+  } catch (e) { return []; }
+}
+
+function descriviOfferta_(o) {
+  const p = [];
+  p.push((o.offerta ? 'l\'offerta "' + o.offerta + '"' : 'un\'offerta') + ' di ' + o.chi + (o.mercato ? ' sul mercato ' + (o.mercato === 'Libero' ? 'libero' : 'di ' + o.mercato.toLowerCase()) : ''));
+  if (o.tipoPrezzo) p.push('prezzo ' + o.tipoPrezzo.toLowerCase().replace('(pun)', 'legato al PUN').replace('(psv)', 'legato al PSV'));
+  if (o.prezzoLuce) p.push('luce a ' + String(o.prezzoLuce).replace('.', ',') + ' euro al kWh');
+  if (o.prezzoGas) p.push('gas a ' + String(o.prezzoGas).replace('.', ',') + ' euro allo Smc');
+  if (o.quotaFissa) p.push('quota fissa ' + eur_(o.quotaFissa) + ' al mese');
+  if (o.potenza) p.push('potenza ' + String(o.potenza).replace('.', ',') + ' kW');
+  return p.join(', ') + '.' + (o.scadenza ? ' Le condizioni economiche scadono il ' + data_(o.scadenza) + '.' : '');
+}
+
+/**
+ * Prima volta: rilegge l'ultima bolletta di ogni fornitore per riempire OFFERTE.
+ * Parte da sola dentro il controllo orario finché non ha finito; si può lanciare anche a mano.
+ */
+function leggiOfferte(start) {
+  start = start || Date.now();
+  const props = PropertiesService.getScriptProperties();
+  const sh = ss_().getSheetByName(CONFIG.SHEET_BOLLETTE);
+  if (!sh || sh.getLastRow() < 2) { props.setProperty('OFFERTE_LETTE', '1'); return 0; }
+  const fatte = String(props.getProperty('OFFERTE_FATTE') || '').split(',').filter(Boolean);
+  const viste = {}, daLeggere = [];
+  readRows_(sh).rows.filter(r => r['ID MAIL'] && r['DATA EMISSIONE'] instanceof Date)
+    .sort((a, b) => b['DATA EMISSIONE'] - a['DATA EMISSIONE'])
+    .forEach(r => { const k = norm_(String(r['FORNITORE']).split(':')[0]) + '|' + norm_(r['FORNITURA']); if (!viste[k]) { viste[k] = 1; daLeggere.push(r); } });
+  let lette = 0;
+  for (const r of daLeggere) {
+    const id = String(r['ID MAIL']);
+    if (fatte.indexOf(id) !== -1) continue;
+    if (tempoScaduto_(start)) return lette;
+    try {
+      const msg = GmailApp.getMessageById(id);
+      const pdf = msg.getAttachments({ includeInlineImages: false }).filter(a => a.getContentType() === 'application/pdf' || /\.pdf$/i.test(a.getName()))[0];
+      const testo = (pdf ? ocrPdf_(pdf.copyBlob()) : '') + '\n' + msg.getPlainBody();
+      if (salvaOfferta_(estraiOfferta_(testo), r['FORNITORE'], r['FORNITURA'], r['DATA EMISSIONE'], r['LINK MAIL'])) lette++;
+    } catch (e) { log_('Offerte', 'Non riesco a leggere ' + r['FORNITORE'] + ': ' + e.message); }
+    fatte.push(id);
+    props.setProperty('OFFERTE_FATTE', fatte.slice(-50).join(','));
+  }
+  props.setProperty('OFFERTE_LETTE', '1');
+  if (lette) log_('Offerte', lette + ' offerte lette dalle bollette');
+  return lette;
+}
+
+/**
+ * EDITH – spese fuori dalle bollette.
+ * - SPESE FISSE: una riga per spesa che si ripete ogni mese (per esempio l'affitto). Ogni mese, dal giorno indicato,
+ *   EDITH la copia da sola nel foglio SPESE. Puoi aggiungere righe o mettere ATTIVA = NO per sospenderne una.
+ * - SPESE: tutte le spese, anche quelle dette a voce ("ho fatto benzina, sono 50 euro"): data, importo, tipologia.
+ */
+
+const COLONNE_SPESE = ['DATA', 'IMPORTO', 'TIPOLOGIA', 'NOTA', 'FONTE', 'REGISTRATA IL'];
+const COLONNE_SPESE_FISSE = ['NOME', 'IMPORTO', 'GIORNO DEL MESE', 'TIPOLOGIA', 'ATTIVA'];
+const SPESE_FISSE_INIZIALI = [['Affitto', 300, 1, 'Casa', 'SI']];
+
+const TIPOLOGIE_SPESA = [
+  ['Benzina', /\b(benzina|carburante|diesel|gasolio|metano per l auto|gpl|pieno|rifornimento|distributore)\b/],
+  ['Spesa', /\b(spesa|supermercato|alimentari|conad|coop|esselunga|carrefour|lidl|eurospin|pam|despar|mercato)\b/],
+  ['Ristorante', /\b(ristorante|pizzeria|pizza|cena fuori|pranzo fuori|sushi|trattoria|aperitivo|kebab|mcdonald\w*)\b/],
+  ['Bar', /\b(bar|caffe|colazione|cappuccino|brioche)\b/],
+  ['Auto', /\b(parcheggio|autostrada|pedaggio|telepass|meccanico|gomme|tagliando|lavaggio|bollo auto|revisione)\b/],
+  ['Trasporti', /\b(treno|autobus|bus|metro|biglietto|taxi|uber|aereo|volo)\b/],
+  ['Salute', /\b(farmacia|medicine|medicinali|medico|dentista|visita|analisi|ticket)\b/],
+  ['Casa', /\b(affitto|condominio|ikea|ferramenta|pulizie|bricolage)\b/],
+  ['Abbigliamento', /\b(vestiti|scarpe|abbigliamento|maglia|pantaloni|giacca|zara)\b/],
+  ['Svago', /\b(cinema|teatro|concerto|libro|libri|netflix|spotify|palestra|abbonamento)\b/],
+  ['Regali', /\b(regalo|regali)\b/],
+  ['Animali', /\b(veterinario|crocchette|cane|gatto)\b/],
+];
+
+function tipologiaSpesa_(t) {
+  const x = (TIPOLOGIE_SPESA.find(([, re]) => re.test(t)) || [])[0];
+  return x || null;
+}
+
+/** "ho fatto benzina, sono 50 euro" → { importo: 50, tipologia: 'Benzina', data } ; null se non è una spesa da registrare. */
+function capisciSpesa_(t) {
+  if (/^(quanto|quando|quali|quale|cosa|come|dove|perche)\b/.test(t)) return null;
+  const m = t.match(/(\d+(?:[.,]\d{1,2})?)\s*(?:euro|eur)\b/) || t.match(/\beuro\s*(\d+(?:[.,]\d{1,2})?)/) ||
+    (tipologiaSpesa_(t) ? t.match(/\b(?:sono|di|da|per)\s+(\d+(?:[.,]\d{1,2})?)\b/) : null);
+  if (!m) return null;
+  // la frase arriva senza virgole ("23,40 euro" diventa "23 40 euro"): due cifre subito prima di "euro" sono i centesimi
+  const cent = t.match(/(\d+)\s(\d{2})\s*(?:euro|eur)\b/);
+  const importo = Math.round(parseFloat(cent ? cent[1] + '.' + cent[2] : m[1].replace(',', '.')) * 100) / 100;
+  if (!(importo > 0) || importo > 20000) return null;
+  const tipologia = tipologiaSpesa_(t);
+  const verbo = /\b(ho fatto|ho speso|ho pagato|ho preso|ho comprato|segna|aggiungi|registra|metti|spesi|pagati|spesa di|sono)\b/.test(t);
+  if (!tipologia && !/\b(ho speso|segna|aggiungi|registra)\b/.test(t)) return null;
+  if (!verbo && !tipologia) return null;
+  const data = new Date();
+  if (/\bieri\b/.test(t)) data.setDate(data.getDate() - 1);
+  else if (/\bl altro ieri\b|\bavantieri\b/.test(t)) data.setDate(data.getDate() - 2);
+  data.setHours(12, 0, 0, 0);
+  return { importo: importo, tipologia: tipologia || 'Altro', data: data };
+}
+
+function registraSpesa_(s, nota, fonte) {
+  const sh = sheet_(CONFIG.SHEET_SPESE);
+  const map = ensureHeaders_(sh, COLONNE_SPESE);
+  appendObj_(sh, map, { 'DATA': s.data, 'IMPORTO': s.importo, 'TIPOLOGIA': s.tipologia, 'NOTA': nota || '', 'FONTE': fonte || 'voce', 'REGISTRATA IL': new Date() });
+  try { svuotaCache_(); } catch (e) { }
+}
+
+/** Toglie l'ultima spesa detta a voce (per "annulla"). */
+function annullaUltimaSpesa_() {
+  const sh = ss_().getSheetByName(CONFIG.SHEET_SPESE);
+  if (!sh || sh.getLastRow() < 2) return null;
+  const righe = readRows_(sh).rows.filter(r => r['FONTE'] === 'voce');
+  const u = righe[righe.length - 1];
+  if (!u) return null;
+  sh.deleteRows(u._row, 1);
+  try { svuotaCache_(); } catch (e) { }
+  return u;
+}
+
+/** Copia ogni mese le spese fisse nel foglio SPESE (una volta sola per mese). */
+function registraSpeseFisse_() {
+  const ss = ss_();
+  let shF = ss.getSheetByName(CONFIG.SHEET_SPESE_FISSE);
+  if (!shF) {
+    shF = sheet_(CONFIG.SHEET_SPESE_FISSE);
+    const mapF = ensureHeaders_(shF, COLONNE_SPESE_FISSE);
+    SPESE_FISSE_INIZIALI.forEach(r => appendObj_(shF, mapF, { 'NOME': r[0], 'IMPORTO': r[1], 'GIORNO DEL MESE': r[2], 'TIPOLOGIA': r[3], 'ATTIVA': r[4] }));
+  }
+  const fisse = readRows_(shF).rows.filter(r => r['NOME'] && typeof r['IMPORTO'] === 'number' && !/^(no|n|falso|false)$/i.test(String(r['ATTIVA'])));
+  if (!fisse.length) return 0;
+  const sh = sheet_(CONFIG.SHEET_SPESE);
+  const map = ensureHeaders_(sh, COLONNE_SPESE);
+  const oggi = new Date(), mese = Utilities.formatDate(oggi, CONFIG.TIMEZONE, 'yyyy-MM');
+  const gia = readRows_(sh).rows.filter(r => r['FONTE'] === 'fissa' && r['DATA'] instanceof Date && Utilities.formatDate(r['DATA'], CONFIG.TIMEZONE, 'yyyy-MM') === mese).map(r => String(r['NOTA']));
+  let n = 0;
+  fisse.forEach(f => {
+    const g = Math.min(Math.max(Number(f['GIORNO DEL MESE']) || 1, 1), 28);
+    if (oggi.getDate() < g || gia.indexOf(String(f['NOME'])) !== -1) return;
+    appendObj_(sh, map, { 'DATA': new Date(oggi.getFullYear(), oggi.getMonth(), g, 12), 'IMPORTO': f['IMPORTO'], 'TIPOLOGIA': f['TIPOLOGIA'] || f['NOME'], 'NOTA': String(f['NOME']), 'FONTE': 'fissa', 'REGISTRATA IL': new Date() });
+    n++;
+  });
+  if (n) { log_('Spese fisse', n + ' spese fisse del mese registrate'); try { svuotaCache_(); } catch (e) { } }
+  return n;
+}
+
+/** Le spese in formato semplice. */
+function spese_() {
+  try {
+    const sh = ss_().getSheetByName(CONFIG.SHEET_SPESE);
+    if (!sh || sh.getLastRow() < 2) return [];
+    return readRows_(sh).rows.filter(r => r['DATA'] instanceof Date && typeof r['IMPORTO'] === 'number')
+      .map(r => ({ data: iso_(r['DATA']), importo: r['IMPORTO'], tipo: String(r['TIPOLOGIA'] || 'Altro'), nota: String(r['NOTA'] || ''), fonte: String(r['FONTE'] || '') }))
+      .sort((a, b) => b.data.localeCompare(a.data));
+  } catch (e) { return []; }
+}
+
+/** Riepilogo per l'app: totale del mese, per tipologia, ultime spese. */
+function riepilogoSpese_() {
+  const S = spese_(), mese = iso_(new Date()).slice(0, 7);
+  const delMese = S.filter(s => s.data.slice(0, 7) === mese);
+  const per = {}; delMese.forEach(s => { per[s.tipo] = (per[s.tipo] || 0) + s.importo; });
+  return { mese: round2_(delMese.reduce((t, s) => t + s.importo, 0)), perTipo: Object.keys(per).map(k => ({ nome: k, totale: round2_(per[k]) })).sort((a, b) => b.totale - a.totale), ultime: S.slice(0, 8) };
+}
+
+/** Risposte di Edith sulle spese (registrazione, annullamento, domande). Restituisce null se la frase non c'entra. */
+function rispostaSpese_(t, c) {
+  if (/^(annulla|cancella|togli|elimina)\b.*\b(spesa|ultima|benzina|registrazione)\b|^annulla$|ho sbagliato( la)? spesa/.test(t)) {
+    const u = annullaUltimaSpesa_();
+    return { testo: u ? 'Fatto: ho tolto ' + u['TIPOLOGIA'] + ' da ' + eur_(u['IMPORTO']) + '.' : 'Non trovo spese dette a voce da togliere.' };
+  }
+  const s = capisciSpesa_(t);
+  if (s) {
+    registraSpesa_(s, '', 'voce');
+    const quando = iso_(s.data) === iso_(new Date()) ? 'oggi' : 'il ' + data_(iso_(s.data));
+    return { testo: 'Segnato: ' + s.tipologia.toLowerCase() + ', ' + eur_(s.importo) + ', ' + quando + '.' + (s.tipologia === 'Altro' ? ' Non ho capito la tipologia: la puoi cambiare nel foglio SPESE.' : '') + ' Se ho sbagliato, di\' "annulla".', aggiorna: true };
+  }
+  const tipo = tipologiaSpesa_(t);
+  const generiche = /spese (varie|extra|del mese|di questo mese|fuori dalle bollette|quotidiane)|altre spese|tutte le spese|uscite/.test(t);
+  if ((tipo || generiche) && /quanto|quante|spes[aoi]|speso|pagato|totale|elenco|lista|ultim/.test(t) && !c.ass && !c.tipo) {
+    const S = spese_(), oggi = new Date();
+    let mese = c.mesi.length ? c.mesi[0] : (/quest anno|nel \d{4}|in tutto l anno/.test(t) ? null : oggi.getMonth());
+    const anno = c.anno;
+    const del = S.filter(x => x.data.slice(0, 4) === anno && (mese === null || +x.data.slice(5, 7) === mese + 1) && (!tipo || x.tipo === tipo));
+    const quando = mese === null ? 'nel ' + anno : aMese_(mese) + (anno !== String(oggi.getFullYear()) ? ' ' + anno : '');
+    if (/ultim/.test(t) && del.length) { const u = del[0]; return { testo: 'L\'ultima ' + (tipo ? 'spesa di ' + tipo.toLowerCase() : 'spesa') + ' è del ' + data_(u.data) + ': ' + eur_(u.importo) + (tipo ? '' : ' (' + u.tipo.toLowerCase() + ')') + '.' }; }
+    if (!del.length) return { testo: cap_(quando) + ' non ho spese' + (tipo ? ' di ' + tipo.toLowerCase() : '') + ' registrate.' };
+    const tot = del.reduce((a, x) => a + x.importo, 0);
+    if (tipo) return { testo: cap_(quando) + ' hai speso ' + eur_(tot) + ' di ' + tipo.toLowerCase() + ' (' + del.length + (del.length === 1 ? ' volta' : ' volte') + ').' };
+    const per = {}; del.forEach(x => { per[x.tipo] = (per[x.tipo] || 0) + x.importo; });
+    return { testo: cap_(quando) + ' hai ' + eur_(tot) + ' di spese fuori dalle bollette: ' + Object.keys(per).sort((a, b) => per[b] - per[a]).map(k => k.toLowerCase() + ' ' + eur_(per[k])).join(', ') + '.' };
+  }
+  return null;
+}
+
+/**
+ * EDITH – l'assistente: capisce le domande (scritte o a voce) e risponde con i dati dello Sheet.
+ * Diviso da 09_App.gs, che ora contiene solo l'ingresso dell'app (doGet/doPost) e le azioni.
+ */
 
 // ---------------------------------------------------------------- assistente
 
@@ -2346,606 +2961,6 @@ function rispostaLocale_(q, P) {
       out.proposta = aCaso_(['Vuoi sapere quanto fa al mese?', 'Ti dico anche la media mensile?']);
     }
     return out;
-  }
-  return null;
-}
-
-/**
- * EDITH – riepilogo settimanale, avvisi via mail e briefing del mattino.
- * Dopo aver incollato il codice lancia una volta installaNovita (oppure setup).
- * Le mail partono solo verso il tuo indirizzo, dal tuo account. Nessun servizio esterno.
- */
-
-// L'indirizzo del proprietario, letto dal profilo Gmail (non serve un'autorizzazione in più)
-function mioIndirizzo_() { return Gmail.Users.getProfile('me').emailAddress; }
-
-/** Manda un avviso a te stesso, al massimo uno ogni 6 ore per lo stesso motivo. */
-function notifica_(oggetto, righe, chiave) {
-  try {
-    const props = PropertiesService.getScriptProperties();
-    const k = 'AVVISO_' + (chiave || oggetto).replace(/\W+/g, '_').slice(0, 60);
-    const ultimo = Number(props.getProperty(k) || 0);
-    if (Date.now() - ultimo < 6 * 3600e3) return false;
-    const testo = [].concat(righe).join('\n');
-    const html = '<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.5">' +
-      [].concat(righe).map(r => '<p style="margin:0 0 8px">' + escHtml_(r) + '</p>').join('') +
-      '<p style="color:#888;font-size:12px">Messaggio automatico di EDITH.</p></div>';
-    GmailApp.sendEmail(mioIndirizzo_(), '[EDITH] ' + oggetto, testo, { htmlBody: html, name: 'EDITH' });
-    props.setProperty(k, String(Date.now()));
-    return true;
-  } catch (e) { log_('Avviso non inviato', oggetto + ' -> ' + e.message); return false; }
-}
-
-function escHtml_(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-
-/** Chiave stabile di una pratica, per capire quali sono nuove. */
-function chiavePratica_(p) { return p.foglio + '#' + p.riga; }
-
-/** Dopo un'elaborazione: avvisa se ci sono nuove pratiche che non sono riuscita a leggere bene. */
-function avvisaNuoveDaVerificare_(prima) {
-  const visti = {};
-  prima.forEach(p => { visti[chiavePratica_(p)] = p.stato; });
-  const nuove = pratiche_().filter(p => p.stato === STATO.DA_VERIFICARE && visti[chiavePratica_(p)] !== STATO.DA_VERIFICARE);
-  if (!nuove.length) return;
-  notifica_(nuove.length === 1 ? 'Una pratica da controllare' : nuove.length + ' pratiche da controllare',
-    ['Non sono riuscita a leggere tutti i dati di ' + (nuove.length === 1 ? 'questa pratica' : 'queste pratiche') + ':']
-      .concat(nuove.map(p => '• ' + p.tipo + (p.chi ? ' ' + p.chi : '') + ' – ' + (p.oggetto || 'senza oggetto') + (p.link ? ' – ' + p.link : '')))
-      .concat(['Completa i campi mancanti nello Sheet: il promemoria si crea da solo.']),
-    'daverificare_' + nuove.map(chiavePratica_).join('_'));
-}
-
-// ---------------------------------------------------------------- riepilogo del lunedì
-
-function testoRiepilogo_() {
-  const P = pratiche_();
-  const oggi = iso_(new Date()), tra7 = iso_(new Date(Date.now() + 7 * 864e5));
-  const aperte = P.filter(p => p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA);
-  const settimana = aperte.filter(p => p.scadenza && p.scadenza <= tra7).sort((a, b) => a.scadenza.localeCompare(b.scadenza));
-  const dopo = aperte.filter(p => !p.scadenza || p.scadenza > tra7);
-  const verifica = P.filter(p => p.stato === STATO.DA_VERIFICARE);
-  const r = ['Buon lunedì, Teo. Ecco la tua settimana.'];
-  r.push(settimana.length ? 'Da pagare entro ' + data_(tra7) + ':' : 'Nessun pagamento in scadenza nei prossimi 7 giorni.');
-  settimana.forEach(p => r.push('• ' + descr_(p) + (p.scadenza < oggi ? ' – GIÀ SCADUTA' : '')));
-  if (dopo.length) r.push('Più avanti: ' + dopo.map(descr_).join('; ') + '.');
-  if (verifica.length) {
-    r.push('Da controllare nello Sheet (' + verifica.length + '):');
-    verifica.forEach(p => r.push('• ' + p.tipo + (p.chi ? ' ' + p.chi : '') + ' – ' + (p.oggetto || '') + (p.link ? ' – ' + p.link : '')));
-  }
-  try { const an = anomalie_(P); if (an.length) { r.push('Anomalie:'); an.forEach(x => r.push('• ' + x.testo)); } } catch (e) { }
-  const s = quota_();
-  if (s) r.push('Spazio Google: ' + s.usato + ' GB su ' + s.limite + ' GB (' + Math.round(s.usato / s.limite * 100) + '%).');
-  return { righe: r, settimana, verifica };
-}
-
-/** Trigger del lunedì mattina. */
-function riepilogoSettimanale() {
-  try {
-    const t = testoRiepilogo_();
-    const ogg = t.settimana.length ? t.settimana.length + (t.settimana.length === 1 ? ' pagamento' : ' pagamenti') + ' questa settimana' : 'Settimana tranquilla';
-    PropertiesService.getScriptProperties().deleteProperty('AVVISO_riepilogo');
-    notifica_(ogg + (t.verifica.length ? ', ' + t.verifica.length + ' da controllare' : ''), t.righe, 'riepilogo');
-  } catch (e) {
-    notifica_('Errore nel riepilogo settimanale', ['Il riepilogo del lunedì non è partito: ' + e.message], 'errore_riepilogo');
-  }
-}
-
-// ---------------------------------------------------------------- briefing del mattino
-
-function briefing_(P) {
-  const oggi = new Date(), tra7 = iso_(new Date(Date.now() + 7 * 864e5));
-  const giorni = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
-  const aperte = P.filter(p => p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA)
-    .sort((a, b) => (a.scadenza || '9999').localeCompare(b.scadenza || '9999'));
-  const vicine = aperte.filter(p => p.scadenza && p.scadenza <= tra7);
-  const verifica = P.filter(p => p.stato === STATO.DA_VERIFICARE).length;
-  let t = 'Oggi è ' + giorni[oggi.getDay()] + ' ' + oggi.getDate() + ' ' + NOMI_MESI[oggi.getMonth()] + '. ';
-  if (vicine.length) t += 'In settimana scade ' + vicine.map(p => p.tipo + (p.chi ? ' ' + p.chi : '') + ' da ' + eur_(p.importo) + ' il ' + data_(p.scadenza).slice(0, 5)).join(', e ') + '. ';
-  else if (aperte.length) t += 'Niente in scadenza questa settimana; il prossimo pagamento è ' + descr_(aperte[0]) + '. ';
-  else t += 'Non hai pagamenti in sospeso. ';
-  if (verifica) t += verifica === 1 ? 'C\'è una pratica da controllare. ' : 'Ci sono ' + verifica + ' pratiche da controllare. ';
-  try {
-    const gravi = anomalie_(P).filter(a => a.livello !== 'basso' && !/scaduta da/.test(a.testo));
-    if (gravi.length) t += 'Attenzione: ' + minuscola_(gravi[0].testo) + (gravi.length > 1 ? ' E c\'è ' + (gravi.length === 2 ? 'un\'altra cosa' : 'altro') + ': chiedimi "ci sono anomalie?".' : '') + ' ';
-  } catch (e) { }
-  return t.trim();
-}
-
-/** Il primo "Edith, sono io" della mattina dà il briefing completo, poi solo il saluto. */
-function primoDelGiorno_() {
-  const props = PropertiesService.getScriptProperties(), oggi = iso_(new Date());
-  if (props.getProperty('ULTIMO_BRIEFING') === oggi) return false;
-  props.setProperty('ULTIMO_BRIEFING', oggi);
-  return true;
-}
-
-// ---------------------------------------------------------------- installazione
-
-/** Lancia una volta dopo aver incollato il nuovo codice: aggiunge il trigger del lunedì. */
-function installaNovita() {
-  const esiste = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'riepilogoSettimanale');
-  if (!esiste) ScriptApp.newTrigger('riepilogoSettimanale').timeBased().onWeekDay(ScriptApp.WeekDay.MONDAY).atHour(8).create();
-  PropertiesService.getScriptProperties().deleteProperty('AVVISO_installazione');
-  const ok = notifica_('Avvisi attivi', ['Da ora ti scrivo qui se qualcosa va storto o se non riesco a leggere una bolletta, e ogni lunedì alle 8 ti mando il riepilogo della settimana.'], 'installazione');
-  Logger.log(ok ? 'Fatto: riepilogo ogni lunedì alle 8 e avvisi via mail attivi. Ti ho mandato una mail di prova.' : 'Trigger installato, ma la mail di prova NON è partita: guarda il foglio LOG.');
-}
-
-// ---------------------------------------------------------------- skill: controllo anomalie
-
-/**
- * Cerca cose strane nei dati e nel sistema. Ogni anomalia: { livello: 'alto'|'medio'|'basso', testo }.
- * Non cambia niente: segnala soltanto.
- */
-function anomalie_(P) {
-  P = P || pratiche_();
-  const out = [], oggi = iso_(new Date());
-  const giorniDa = s => Math.round((new Date(oggi + 'T12:00:00') - new Date(s + 'T12:00:00')) / 864e5);
-  const nome = p => p.tipo + (p.chi ? ' ' + p.chi : '');
-
-  // 1. pagamenti scaduti e non segnati
-  P.filter(p => (p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA) && p.scadenza && p.scadenza < oggi)
-    .forEach(p => out.push({ livello: 'alto', testo: nome(p) + ' da ' + eur_(p.importo) + ' è scaduta da ' + giorniDa(p.scadenza) + ' giorni e non risulta pagata.' }));
-
-  // 2. bollette molto più care del solito (stesso fornitore e tipo, almeno 2 precedenti)
-  const B = P.filter(p => p.area === 'bollette' && p.importo !== null && p.rif);
-  const gruppi = {};
-  B.forEach(p => { const k = p.tipo + '|' + p.chi; (gruppi[k] = gruppi[k] || []).push(p); });
-  Object.keys(gruppi).forEach(k => {
-    const g = gruppi[k].sort((a, b) => b.rif.localeCompare(a.rif));
-    if (g.length < 3) return;
-    const ult = g[0], media = g.slice(1).reduce((s, p) => s + p.importo, 0) / (g.length - 1);
-    if (media > 0 && ult.importo > media * 1.4 && ult.importo - media > 15)
-      out.push({ livello: 'medio', testo: 'L\'ultima bolletta ' + nome(ult) + ' (' + eur_(ult.importo) + ') è il ' + Math.round((ult.importo / media - 1) * 100) + '% sopra la tua media di ' + eur_(media) + '.' });
-  });
-
-  // 3. fornitori che non mandano bollette da tanto
-  const fornitori = {};
-  B.forEach(p => { if (!fornitori[p.chi] || p.rif > fornitori[p.chi]) fornitori[p.chi] = p.rif; });
-  Object.keys(fornitori).forEach(chi => {
-    const g = giorniDa(fornitori[chi]);
-    if (chi && g > 75) out.push({ livello: 'medio', testo: 'Da ' + chi + ' non arriva una bolletta da ' + g + ' giorni (l\'ultima è del ' + data_(fornitori[chi]) + '). Controlla che la mail non sia finita altrove o che l\'etichetta "bollettazione" sia applicata.' });
-  });
-
-  // 4. rate di assicurazione previste e mai arrivate
-  const A = P.filter(p => p.area === 'assicurazioni');
-  A.filter(p => p.prossima && p.prossima < oggi && giorniDa(p.prossima) > 7).forEach(p => {
-    const arrivata = A.some(x => x !== p && x.chi === p.chi && (x.scadenza || x.rif) >= p.prossima.slice(0, 7));
-    if (!arrivata) out.push({ livello: 'medio', testo: 'Era prevista una rata ' + nome(p) + ' intorno al ' + data_(p.prossima) + ', ma non ho trovato la mail.' });
-  });
-
-  // 5. pratiche lette male
-  const ver = P.filter(p => p.stato === STATO.DA_VERIFICARE);
-  if (ver.length) out.push({ livello: 'basso', testo: (ver.length === 1 ? 'Una pratica non è stata letta del tutto' : ver.length + ' pratiche non sono state lette del tutto') + ': ' + ver.slice(0, 3).map(p => p.oggetto || nome(p)).join('; ') + '.' });
-
-  // 6. doppioni tolti dal conteggio
-  // offerte: condizioni economiche in scadenza (dopo, di solito, il prezzo cambia)
-  offerte_().filter(o => o.scadenza).forEach(o => {
-    const g = -giorniDa(o.scadenza);
-    if (g < 0 && g > -120) out.push({ livello: 'medio', testo: 'Le condizioni economiche dell\'offerta ' + o.chi + (o.offerta ? ' "' + o.offerta + '"' : '') + ' sono scadute il ' + data_(o.scadenza) + ': controlla il nuovo prezzo nella prossima bolletta.' });
-    else if (g >= 0 && g <= 60) out.push({ livello: 'medio', testo: 'Le condizioni economiche dell\'offerta ' + o.chi + (o.offerta ? ' "' + o.offerta + '"' : '') + ' scadono il ' + data_(o.scadenza) + ', tra ' + g + ' giorni: è il momento di confrontare le offerte.' });
-  });
-  if (DOPPIONI_ > 0) out.push({ livello: 'basso', testo: 'Nello Sheet ' + (DOPPIONI_ === 1 ? 'c\'è 1 riga doppia' : 'ci sono ' + DOPPIONI_ + ' righe doppie') + ' (per esempio mail inoltrate con "Fwd:"). Non le conto due volte, ma puoi cancellarle.' });
-
-  // 7. il controllo automatico è fermo?
-  try {
-    const props = PropertiesService.getScriptProperties();
-    const ultimo = Number(props.getProperty('ULTIMO_CONTROLLO') || 0);
-    const trigger = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'elaboraTutto');
-    if (!trigger) out.push({ livello: 'alto', testo: 'Il controllo automatico della posta non è attivo. In Apps Script lancia setup per riattivarlo.' });
-    else if (ultimo && Date.now() - ultimo > 3 * 3600e3) out.push({ livello: 'alto', testo: 'L\'ultimo controllo automatico della posta è di ' + Math.round((Date.now() - ultimo) / 3600e3) + ' ore fa: dovrebbe girare ogni ora.' });
-  } catch (e) { }
-
-  // 8. spazio quasi pieno
-  const s = quota_();
-  if (s && s.limite && s.usato / s.limite > 0.85) out.push({ livello: 'medio', testo: 'Lo spazio Google è al ' + Math.round(s.usato / s.limite * 100) + '%: nella sezione Posta trovi cosa liberare.' });
-
-  const ordine = { alto: 0, medio: 1, basso: 2 };
-  return out.sort((a, b) => ordine[a.livello] - ordine[b.livello]);
-}
-
-function testoAnomalie_(P) {
-  const a = anomalie_(P);
-  if (!a.length) return 'Ho controllato tutto: nessuna anomalia. Pagamenti, bollette, rate e controllo automatico sono in ordine.';
-  return (a.length === 1 ? 'Ho trovato una cosa da guardare: ' + minuscola_(a[0].testo) : 'Ho trovato ' + a.length + ' cose da guardare. ' + a.map((x, i) => (i + 1) + ') ' + x.testo).join(' '));
-}
-
-function minuscola_(s) { return /^[A-Z](?![A-Z])/.test(s) && !/^(AXA|Sara|SOMET|Piemonte)/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
-
-/**
- * EDITH – sicurezza dell'app sul telefono.
- * - Il token dura 90 giorni. Dopo 30 giorni di uso l'app ne riceve uno nuovo da sola, senza che tu faccia niente;
- *   il vecchio resta valido ancora 7 giorni, così un secondo telefono non resta bloccato all'improvviso.
- * - Se non apri l'app per più di 90 giorni il token scade: rilancia creaTokenVoce e reinseriscilo.
- * - Ogni accesso finisce nel foglio ACCESSI. Se qualcuno sbaglia il token 5 volte in un'ora ti arriva una mail.
- */
-
-const TOKEN_DURATA_GG = 90, TOKEN_RINNOVO_GG = 30, TOKEN_GRAZIA_GG = 7;
-
-function nuovoToken_() { return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8); }
-
-/** Lancia una volta (o per bloccare un telefono perso): crea un token nuovo e annulla tutti i precedenti. */
-function creaTokenVoce() {
-  const props = PropertiesService.getScriptProperties();
-  const token = nuovoToken_();
-  props.setProperties({ EDITH_TOKEN: token, EDITH_TOKEN_DATA: String(Date.now()) });
-  props.deleteProperty('EDITH_TOKEN_VECCHIO'); props.deleteProperty('EDITH_TOKEN_VECCHIO_FINO');
-  registraAccesso_('creaTokenVoce', 'nuovo token creato, i precedenti non valgono più');
-  Logger.log('Token creato. Copialo: ' + token);
-  Logger.log('Incollalo nell\'app (ingranaggio › Collegamento) insieme all\'URL del deployment Voce.');
-  Logger.log('Dura 90 giorni e si rinnova da solo ogni 30 giorni mentre usi l\'app.');
-  return token;
-}
-
-/**
- * Controlla il token. Risponde { ok, nuovo?, motivo? }.
- * "nuovo" è il token che l'app deve salvare al posto di quello vecchio.
- */
-function verificaToken_(k) {
-  const props = PropertiesService.getScriptProperties();
-  const p = props.getProperties();
-  const ora = Date.now(), gg = 864e5;
-  if (!p.EDITH_TOKEN || !k) return { ok: false, motivo: 'token mancante' };
-  if (uguali_(k, p.EDITH_TOKEN)) {
-    let data = Number(p.EDITH_TOKEN_DATA || 0);
-    if (!data) { data = ora; props.setProperty('EDITH_TOKEN_DATA', String(ora)); }   // token creato prima di questa versione
-    if (ora - data > TOKEN_DURATA_GG * gg) return { ok: false, motivo: 'token scaduto' };
-    if (ora - data > TOKEN_RINNOVO_GG * gg) {
-      const lock = LockService.getScriptLock();
-      if (lock.tryLock(3000)) {
-        try {
-          const fresco = props.getProperty('EDITH_TOKEN');
-          if (fresco !== p.EDITH_TOKEN) return { ok: true, nuovo: fresco };   // l'ha già rinnovato un'altra richiesta
-          const nuovo = nuovoToken_();
-          props.setProperties({ EDITH_TOKEN: nuovo, EDITH_TOKEN_DATA: String(ora), EDITH_TOKEN_VECCHIO: p.EDITH_TOKEN, EDITH_TOKEN_VECCHIO_FINO: String(ora + TOKEN_GRAZIA_GG * gg) });
-          registraAccesso_('rinnovo', 'token rinnovato automaticamente');
-          return { ok: true, nuovo };
-        } finally { lock.releaseLock(); }
-      }
-    }
-    return { ok: true };
-  }
-  if (p.EDITH_TOKEN_VECCHIO && uguali_(k, p.EDITH_TOKEN_VECCHIO) && ora < Number(p.EDITH_TOKEN_VECCHIO_FINO || 0)) return { ok: true, nuovo: p.EDITH_TOKEN };
-  return { ok: false, motivo: 'token errato' };
-}
-
-/** Registro accessi nel foglio ACCESSI (tiene le ultime 1000 righe). */
-function registraAccesso_(funzione, esito) {
-  try {
-    const sh = sheet_(CONFIG.SHEET_ACCESSI);
-    if (sh.getLastRow() === 0) sh.appendRow(['QUANDO', 'FUNZIONE', 'ESITO']);
-    sh.appendRow([new Date(), funzione, esito]);
-    if (sh.getLastRow() > 1000) sh.deleteRows(2, 200);
-  } catch (e) { }
-}
-
-/** Conta i tentativi falliti: al quinto nella stessa ora manda un avviso. */
-function tentativoFallito_(motivo) {
-  registraAccesso_('accesso', 'RIFIUTATO: ' + motivo);
-  try {
-    const props = PropertiesService.getScriptProperties();
-    const ora = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMddHH');
-    const [h, n] = String(props.getProperty('FALLITI') || '').split(':');
-    const conta = h === ora ? Number(n || 0) + 1 : 1;
-    props.setProperty('FALLITI', ora + ':' + conta);
-    if (conta === 5) notifica_('Tentativi di accesso falliti', ['Nell\'ultima ora qualcuno ha provato 5 volte ad aprire EDITH con un token sbagliato (' + motivo + ').',
-      'Se non eri tu, lancia creaTokenVoce in Apps Script: il token cambia e chi ce l\'ha resta fuori. Il registro è nel foglio ACCESSI.'], 'falliti_' + ora);
-  } catch (e) { }
-}
-
-/**
- * EDITH – l'offerta in corso per ogni fornitura, letta dalle bollette.
- * Le bollette italiane hanno un riquadro con nome dell'offerta, prezzo, quota fissa e scadenza delle condizioni:
- * qui lo leggo dal testo dell'OCR e tengo nel foglio OFFERTE una riga per fornitore e fornitura, aggiornata con l'ultima bolletta.
- */
-
-const COLONNE_OFFERTE = ['FORNITORE', 'FORNITURA', 'OFFERTA', 'MERCATO', 'TIPO PREZZO', 'PREZZO LUCE €/KWH', 'PREZZO GAS €/SMC',
-  'QUOTA FISSA €/MESE', 'POTENZA KW', 'SCADENZA CONDIZIONI', 'CONSUMO ANNUO LUCE KWH', 'CONSUMO ANNUO GAS SMC', 'POD', 'PDR',
-  'DA BOLLETTA DEL', 'LINK MAIL', 'AGGIORNATO'];
-
-/** Numero all'italiana con decimali ("0,123456" o "1.234") → Number. */
-function num_(s) {
-  if (s === undefined || s === null) return null;
-  let t = String(s).replace(/\s/g, '');
-  if (/,/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
-  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
-  const n = parseFloat(t);
-  return isNaN(n) ? null : n;
-}
-
-/** Prezzo unitario vicino a un'unità di misura: "0,1234 €/kWh", "€/kWh 0,1234", "0,1234 euro/kWh". */
-function prezzoUnitario_(t, unita, min, max) {
-  const u = '(?:€|euro|eur)\\s*\\/\\s*' + unita;
-  const pattern = [
-    new RegExp('(\\d+[,.]\\d{2,6})\\s*' + u, 'gi'),
-    new RegExp(u + '\\s*:?\\s*(\\d+[,.]\\d{2,6})', 'gi'),
-  ];
-  // preferisco i valori vicini a "prezzo", "componente energia", "materia"
-  const cand = [];
-  pattern.forEach(re => {
-    let m;
-    while ((m = re.exec(t)) !== null) {
-      const v = num_(m[1]);
-      if (v === null || v < min || v > max) continue;
-      const prima = t.slice(Math.max(0, m.index - 120), m.index).toLowerCase();
-      const peso = /prezzo|componente energia|materia (prima|energia|gas)|costo (dell )?energia|spesa per la materia|\bpe\b|\bf0\b|monorari|cmem|prezzo gas/.test(prima) ? 2
-        : /trasporto|oneri|accise|iva|distribuzione|perequazione|imposte/.test(prima) ? -1 : 0;
-      cand.push({ v: v, peso: peso, pos: m.index });
-    }
-  });
-  if (!cand.length) return null;
-  cand.sort((a, b) => b.peso - a.peso || a.pos - b.pos);
-  return cand[0].peso < 0 ? null : cand[0].v;
-}
-
-/** Dopo una delle parole chiave, il primo testo "nome" (per il nome dell'offerta). */
-function nomeOfferta_(t) {
-  const re = /(?:nome (?:dell[' ]?)?offerta|denominazione (?:dell[' ]?)?offerta|offerta commerciale|nome (?:del )?prodotto|offerta sottoscritta|la tua offerta|offerta)\s*[:\-]\s*([^\n]{3,60})/i;
-  const m = t.match(re);
-  if (!m) return '';
-  return m[1].replace(/\s*(codice|cod\.|offerta n|valid|mercato|prezzo|scadenza).*$/i, '').replace(/[.;,]+$/, '').trim();
-}
-
-/** Estrae i dettagli dell'offerta dal testo di una bolletta. Restituisce null se non trova niente di utile. */
-function estraiOfferta_(testo) {
-  const t = String(testo || '').replace(/ /g, ' ').replace(/[ \t]+/g, ' ');
-  const low = t.toLowerCase();
-  const o = {};
-  o.offerta = nomeOfferta_(t);
-  o.mercato = /servizio di tutela|maggior tutela|tutela della vulnerabilita|tutela vulnerabil/.test(low) ? 'Tutela'
-    : /tutele graduali|\bstg\b/.test(low) ? 'Tutele graduali' : /mercato libero/.test(low) ? 'Libero' : '';
-  const indicizzato = /\bpun\b|\bpsv\b|indicizzat|variabile|spread|\bttf\b/.test(low);
-  const fisso = /prezzo fisso|fisso per|bloccato|invariabile|prezzo fisso e invariabile/.test(low);
-  o.tipoPrezzo = fisso && !/\bpun\b.*\+|spread/.test(low) ? 'Fisso' : indicizzato ? (/\bpun\b/.test(low) ? 'Variabile (PUN)' : /\bpsv\b/.test(low) ? 'Variabile (PSV)' : 'Variabile') : '';
-  o.prezzoLuce = prezzoUnitario_(t, 'kwh', 0.03, 1.5);
-  o.prezzoGas = prezzoUnitario_(t, 'smc', 0.1, 5);
-  const qf = t.match(/(?:quota fissa|costo fisso|commercializzazione|corrispettivo fisso|canone)[^\n€]{0,80}?(?:€\s*|euro\s*)?(\d+[,.]\d{2,4})\s*(?:€|euro)?\s*\/\s*(mese|anno)/i)
-    || t.match(/(?:quota fissa|costo fisso|commercializzazione|corrispettivo fisso)[^\n]{0,60}?(?:€|euro)\s*\/\s*(?:pdp\s*\/\s*)?(mese|anno)\s*:?\s*(\d+[,.]\d{2,4})/i);
-  if (qf) {
-    const [val, per] = /\d/.test(qf[1]) ? [qf[1], qf[2]] : [qf[2], qf[1]];
-    const v = num_(val);
-    if (v !== null) o.quotaFissa = Math.round((per.toLowerCase() === 'anno' ? v / 12 : v) * 100) / 100;
-  }
-  const pot = t.match(/potenza (?:contrattualmente )?impegnata[^\d\n]{0,25}(\d+(?:[,.]\d+)?)\s*kw\b/i);
-  if (pot) o.potenza = num_(pot[1]);
-  const scad = dataDopo_(t, ['condizioni economiche[^\\n]{0,60}?(?:fino al|valide fino|scadenza|scadono il|scade il)', 'scadenza (?:delle )?condizioni economiche',
-    'prezzo (?:bloccato|fisso)[^\\n]{0,30}?fino al', 'valid[ae] fino al', 'offerta valida fino'], 40);
-  if (scad) o.scadenzaCondizioni = scad;
-  const cl = t.match(/consumo annuo[^\n\d]{0,40}(\d{1,3}(?:\.\d{3})*|\d+)\s*kwh/i);
-  if (cl) o.consumoLuce = num_(cl[1]);
-  const cg = t.match(/consumo annuo[^\n\d]{0,40}(\d{1,3}(?:\.\d{3})*|\d+)\s*smc/i);
-  if (cg) o.consumoGas = num_(cg[1]);
-  const pod = t.match(/\b(IT\s?\d{3}\s?E\s?\d{7,8}[A-Z0-9]?)\b/i);
-  if (pod) o.pod = pod[1].replace(/\s/g, '').toUpperCase();
-  const pdr = t.match(/\bPDR\b[^\d\n]{0,25}(\d{14})\b/i);
-  if (pdr) o.pdr = pdr[1];
-  const utili = ['offerta', 'prezzoLuce', 'prezzoGas', 'quotaFissa', 'scadenzaCondizioni', 'tipoPrezzo'].filter(k => o[k]).length;
-  return utili >= 2 ? o : null;
-}
-
-/** Salva l'offerta letta da una bolletta (tiene la più recente per fornitore e fornitura). */
-function salvaOfferta_(o, fornitore, fornitura, emissione, link) {
-  if (!o) return false;
-  const sh = sheet_(CONFIG.SHEET_OFFERTE);
-  const map = ensureHeaders_(sh, COLONNE_OFFERTE);
-  const righe = readRows_(sh).rows;
-  const chi = String(fornitore || '').split(':')[0].trim();
-  const es = righe.find(r => norm_(r['FORNITORE']) === norm_(chi) && norm_(r['FORNITURA']) === norm_(fornitura));
-  if (es && es['DA BOLLETTA DEL'] instanceof Date && emissione && es['DA BOLLETTA DEL'] > emissione) return false;
-  const obj = {
-    'FORNITORE': chi, 'FORNITURA': fornitura, 'OFFERTA': o.offerta || '', 'MERCATO': o.mercato || '', 'TIPO PREZZO': o.tipoPrezzo || '',
-    'PREZZO LUCE €/KWH': o.prezzoLuce || '', 'PREZZO GAS €/SMC': o.prezzoGas || '', 'QUOTA FISSA €/MESE': o.quotaFissa || '',
-    'POTENZA KW': o.potenza || '', 'SCADENZA CONDIZIONI': o.scadenzaCondizioni || '', 'CONSUMO ANNUO LUCE KWH': o.consumoLuce || '',
-    'CONSUMO ANNUO GAS SMC': o.consumoGas || '', 'POD': o.pod || '', 'PDR': o.pdr || '', 'DA BOLLETTA DEL': emissione || '', 'LINK MAIL': link || '', 'AGGIORNATO': new Date(),
-  };
-  if (es) {
-    // se questa bolletta non riporta un campo, tengo quello che sapevo già (per esempio il POD)
-    Object.keys(obj).forEach(k => { if (obj[k] === '' && es[k] !== '' && es[k] !== undefined) obj[k] = es[k]; });
-    Object.keys(obj).forEach(k => setCell_(sh, map, es._row, k, obj[k]));
-  } else appendObj_(sh, map, obj);
-  return true;
-}
-
-/** Le offerte per l'app e per Edith, in formato semplice. */
-function offerte_() {
-  try {
-    const sh = ss_().getSheetByName(CONFIG.SHEET_OFFERTE);
-    if (!sh || sh.getLastRow() < 2) return [];
-    const n = v => (typeof v === 'number' ? v : null);
-    return readRows_(sh).rows.filter(r => r['FORNITORE']).map(r => ({
-      chi: String(r['FORNITORE']), tipo: String(r['FORNITURA'] || ''), offerta: String(r['OFFERTA'] || ''), mercato: String(r['MERCATO'] || ''),
-      tipoPrezzo: String(r['TIPO PREZZO'] || ''), prezzoLuce: n(r['PREZZO LUCE €/KWH']), prezzoGas: n(r['PREZZO GAS €/SMC']),
-      quotaFissa: n(r['QUOTA FISSA €/MESE']), potenza: n(r['POTENZA KW']), scadenza: iso_(r['SCADENZA CONDIZIONI']),
-      consumoLuce: n(r['CONSUMO ANNUO LUCE KWH']), consumoGas: n(r['CONSUMO ANNUO GAS SMC']), pod: String(r['POD'] || ''), pdr: String(r['PDR'] || ''),
-      da: iso_(r['DA BOLLETTA DEL']), link: String(r['LINK MAIL'] || ''),
-    }));
-  } catch (e) { return []; }
-}
-
-function descriviOfferta_(o) {
-  const p = [];
-  p.push((o.offerta ? 'l\'offerta "' + o.offerta + '"' : 'un\'offerta') + ' di ' + o.chi + (o.mercato ? ' sul mercato ' + (o.mercato === 'Libero' ? 'libero' : 'di ' + o.mercato.toLowerCase()) : ''));
-  if (o.tipoPrezzo) p.push('prezzo ' + o.tipoPrezzo.toLowerCase().replace('(pun)', 'legato al PUN').replace('(psv)', 'legato al PSV'));
-  if (o.prezzoLuce) p.push('luce a ' + String(o.prezzoLuce).replace('.', ',') + ' euro al kWh');
-  if (o.prezzoGas) p.push('gas a ' + String(o.prezzoGas).replace('.', ',') + ' euro allo Smc');
-  if (o.quotaFissa) p.push('quota fissa ' + eur_(o.quotaFissa) + ' al mese');
-  if (o.potenza) p.push('potenza ' + String(o.potenza).replace('.', ',') + ' kW');
-  return p.join(', ') + '.' + (o.scadenza ? ' Le condizioni economiche scadono il ' + data_(o.scadenza) + '.' : '');
-}
-
-/**
- * Prima volta: rilegge l'ultima bolletta di ogni fornitore per riempire OFFERTE.
- * Parte da sola dentro il controllo orario finché non ha finito; si può lanciare anche a mano.
- */
-function leggiOfferte(start) {
-  start = start || Date.now();
-  const props = PropertiesService.getScriptProperties();
-  const sh = ss_().getSheetByName(CONFIG.SHEET_BOLLETTE);
-  if (!sh || sh.getLastRow() < 2) { props.setProperty('OFFERTE_LETTE', '1'); return 0; }
-  const fatte = String(props.getProperty('OFFERTE_FATTE') || '').split(',').filter(Boolean);
-  const viste = {}, daLeggere = [];
-  readRows_(sh).rows.filter(r => r['ID MAIL'] && r['DATA EMISSIONE'] instanceof Date)
-    .sort((a, b) => b['DATA EMISSIONE'] - a['DATA EMISSIONE'])
-    .forEach(r => { const k = norm_(String(r['FORNITORE']).split(':')[0]) + '|' + norm_(r['FORNITURA']); if (!viste[k]) { viste[k] = 1; daLeggere.push(r); } });
-  let lette = 0;
-  for (const r of daLeggere) {
-    const id = String(r['ID MAIL']);
-    if (fatte.indexOf(id) !== -1) continue;
-    if (tempoScaduto_(start)) return lette;
-    try {
-      const msg = GmailApp.getMessageById(id);
-      const pdf = msg.getAttachments({ includeInlineImages: false }).filter(a => a.getContentType() === 'application/pdf' || /\.pdf$/i.test(a.getName()))[0];
-      const testo = (pdf ? ocrPdf_(pdf.copyBlob()) : '') + '\n' + msg.getPlainBody();
-      if (salvaOfferta_(estraiOfferta_(testo), r['FORNITORE'], r['FORNITURA'], r['DATA EMISSIONE'], r['LINK MAIL'])) lette++;
-    } catch (e) { log_('Offerte', 'Non riesco a leggere ' + r['FORNITORE'] + ': ' + e.message); }
-    fatte.push(id);
-    props.setProperty('OFFERTE_FATTE', fatte.slice(-50).join(','));
-  }
-  props.setProperty('OFFERTE_LETTE', '1');
-  if (lette) log_('Offerte', lette + ' offerte lette dalle bollette');
-  return lette;
-}
-
-/**
- * EDITH – spese fuori dalle bollette.
- * - SPESE FISSE: una riga per spesa che si ripete ogni mese (per esempio l'affitto). Ogni mese, dal giorno indicato,
- *   EDITH la copia da sola nel foglio SPESE. Puoi aggiungere righe o mettere ATTIVA = NO per sospenderne una.
- * - SPESE: tutte le spese, anche quelle dette a voce ("ho fatto benzina, sono 50 euro"): data, importo, tipologia.
- */
-
-const COLONNE_SPESE = ['DATA', 'IMPORTO', 'TIPOLOGIA', 'NOTA', 'FONTE', 'REGISTRATA IL'];
-const COLONNE_SPESE_FISSE = ['NOME', 'IMPORTO', 'GIORNO DEL MESE', 'TIPOLOGIA', 'ATTIVA'];
-const SPESE_FISSE_INIZIALI = [['Affitto', 300, 1, 'Casa', 'SI']];
-
-const TIPOLOGIE_SPESA = [
-  ['Benzina', /\b(benzina|carburante|diesel|gasolio|metano per l auto|gpl|pieno|rifornimento|distributore)\b/],
-  ['Spesa', /\b(spesa|supermercato|alimentari|conad|coop|esselunga|carrefour|lidl|eurospin|pam|despar|mercato)\b/],
-  ['Ristorante', /\b(ristorante|pizzeria|pizza|cena fuori|pranzo fuori|sushi|trattoria|aperitivo|kebab|mcdonald\w*)\b/],
-  ['Bar', /\b(bar|caffe|colazione|cappuccino|brioche)\b/],
-  ['Auto', /\b(parcheggio|autostrada|pedaggio|telepass|meccanico|gomme|tagliando|lavaggio|bollo auto|revisione)\b/],
-  ['Trasporti', /\b(treno|autobus|bus|metro|biglietto|taxi|uber|aereo|volo)\b/],
-  ['Salute', /\b(farmacia|medicine|medicinali|medico|dentista|visita|analisi|ticket)\b/],
-  ['Casa', /\b(affitto|condominio|ikea|ferramenta|pulizie|bricolage)\b/],
-  ['Abbigliamento', /\b(vestiti|scarpe|abbigliamento|maglia|pantaloni|giacca|zara)\b/],
-  ['Svago', /\b(cinema|teatro|concerto|libro|libri|netflix|spotify|palestra|abbonamento)\b/],
-  ['Regali', /\b(regalo|regali)\b/],
-  ['Animali', /\b(veterinario|crocchette|cane|gatto)\b/],
-];
-
-function tipologiaSpesa_(t) {
-  const x = (TIPOLOGIE_SPESA.find(([, re]) => re.test(t)) || [])[0];
-  return x || null;
-}
-
-/** "ho fatto benzina, sono 50 euro" → { importo: 50, tipologia: 'Benzina', data } ; null se non è una spesa da registrare. */
-function capisciSpesa_(t) {
-  if (/^(quanto|quando|quali|quale|cosa|come|dove|perche)\b/.test(t)) return null;
-  const m = t.match(/(\d+(?:[.,]\d{1,2})?)\s*(?:euro|eur)\b/) || t.match(/\beuro\s*(\d+(?:[.,]\d{1,2})?)/) ||
-    (tipologiaSpesa_(t) ? t.match(/\b(?:sono|di|da|per)\s+(\d+(?:[.,]\d{1,2})?)\b/) : null);
-  if (!m) return null;
-  // la frase arriva senza virgole ("23,40 euro" diventa "23 40 euro"): due cifre subito prima di "euro" sono i centesimi
-  const cent = t.match(/(\d+)\s(\d{2})\s*(?:euro|eur)\b/);
-  const importo = Math.round(parseFloat(cent ? cent[1] + '.' + cent[2] : m[1].replace(',', '.')) * 100) / 100;
-  if (!(importo > 0) || importo > 20000) return null;
-  const tipologia = tipologiaSpesa_(t);
-  const verbo = /\b(ho fatto|ho speso|ho pagato|ho preso|ho comprato|segna|aggiungi|registra|metti|spesi|pagati|spesa di|sono)\b/.test(t);
-  if (!tipologia && !/\b(ho speso|segna|aggiungi|registra)\b/.test(t)) return null;
-  if (!verbo && !tipologia) return null;
-  const data = new Date();
-  if (/\bieri\b/.test(t)) data.setDate(data.getDate() - 1);
-  else if (/\bl altro ieri\b|\bavantieri\b/.test(t)) data.setDate(data.getDate() - 2);
-  data.setHours(12, 0, 0, 0);
-  return { importo: importo, tipologia: tipologia || 'Altro', data: data };
-}
-
-function registraSpesa_(s, nota, fonte) {
-  const sh = sheet_(CONFIG.SHEET_SPESE);
-  const map = ensureHeaders_(sh, COLONNE_SPESE);
-  appendObj_(sh, map, { 'DATA': s.data, 'IMPORTO': s.importo, 'TIPOLOGIA': s.tipologia, 'NOTA': nota || '', 'FONTE': fonte || 'voce', 'REGISTRATA IL': new Date() });
-  try { svuotaCache_(); } catch (e) { }
-}
-
-/** Toglie l'ultima spesa detta a voce (per "annulla"). */
-function annullaUltimaSpesa_() {
-  const sh = ss_().getSheetByName(CONFIG.SHEET_SPESE);
-  if (!sh || sh.getLastRow() < 2) return null;
-  const righe = readRows_(sh).rows.filter(r => r['FONTE'] === 'voce');
-  const u = righe[righe.length - 1];
-  if (!u) return null;
-  sh.deleteRows(u._row, 1);
-  try { svuotaCache_(); } catch (e) { }
-  return u;
-}
-
-/** Copia ogni mese le spese fisse nel foglio SPESE (una volta sola per mese). */
-function registraSpeseFisse_() {
-  const ss = ss_();
-  let shF = ss.getSheetByName(CONFIG.SHEET_SPESE_FISSE);
-  if (!shF) {
-    shF = sheet_(CONFIG.SHEET_SPESE_FISSE);
-    const mapF = ensureHeaders_(shF, COLONNE_SPESE_FISSE);
-    SPESE_FISSE_INIZIALI.forEach(r => appendObj_(shF, mapF, { 'NOME': r[0], 'IMPORTO': r[1], 'GIORNO DEL MESE': r[2], 'TIPOLOGIA': r[3], 'ATTIVA': r[4] }));
-  }
-  const fisse = readRows_(shF).rows.filter(r => r['NOME'] && typeof r['IMPORTO'] === 'number' && !/^(no|n|falso|false)$/i.test(String(r['ATTIVA'])));
-  if (!fisse.length) return 0;
-  const sh = sheet_(CONFIG.SHEET_SPESE);
-  const map = ensureHeaders_(sh, COLONNE_SPESE);
-  const oggi = new Date(), mese = Utilities.formatDate(oggi, CONFIG.TIMEZONE, 'yyyy-MM');
-  const gia = readRows_(sh).rows.filter(r => r['FONTE'] === 'fissa' && r['DATA'] instanceof Date && Utilities.formatDate(r['DATA'], CONFIG.TIMEZONE, 'yyyy-MM') === mese).map(r => String(r['NOTA']));
-  let n = 0;
-  fisse.forEach(f => {
-    const g = Math.min(Math.max(Number(f['GIORNO DEL MESE']) || 1, 1), 28);
-    if (oggi.getDate() < g || gia.indexOf(String(f['NOME'])) !== -1) return;
-    appendObj_(sh, map, { 'DATA': new Date(oggi.getFullYear(), oggi.getMonth(), g, 12), 'IMPORTO': f['IMPORTO'], 'TIPOLOGIA': f['TIPOLOGIA'] || f['NOME'], 'NOTA': String(f['NOME']), 'FONTE': 'fissa', 'REGISTRATA IL': new Date() });
-    n++;
-  });
-  if (n) { log_('Spese fisse', n + ' spese fisse del mese registrate'); try { svuotaCache_(); } catch (e) { } }
-  return n;
-}
-
-/** Le spese in formato semplice. */
-function spese_() {
-  try {
-    const sh = ss_().getSheetByName(CONFIG.SHEET_SPESE);
-    if (!sh || sh.getLastRow() < 2) return [];
-    return readRows_(sh).rows.filter(r => r['DATA'] instanceof Date && typeof r['IMPORTO'] === 'number')
-      .map(r => ({ data: iso_(r['DATA']), importo: r['IMPORTO'], tipo: String(r['TIPOLOGIA'] || 'Altro'), nota: String(r['NOTA'] || ''), fonte: String(r['FONTE'] || '') }))
-      .sort((a, b) => b.data.localeCompare(a.data));
-  } catch (e) { return []; }
-}
-
-/** Riepilogo per l'app: totale del mese, per tipologia, ultime spese. */
-function riepilogoSpese_() {
-  const S = spese_(), mese = iso_(new Date()).slice(0, 7);
-  const delMese = S.filter(s => s.data.slice(0, 7) === mese);
-  const per = {}; delMese.forEach(s => { per[s.tipo] = (per[s.tipo] || 0) + s.importo; });
-  return { mese: round2_(delMese.reduce((t, s) => t + s.importo, 0)), perTipo: Object.keys(per).map(k => ({ nome: k, totale: round2_(per[k]) })).sort((a, b) => b.totale - a.totale), ultime: S.slice(0, 8) };
-}
-
-/** Risposte di Edith sulle spese (registrazione, annullamento, domande). Restituisce null se la frase non c'entra. */
-function rispostaSpese_(t, c) {
-  if (/^(annulla|cancella|togli|elimina)\b.*\b(spesa|ultima|benzina|registrazione)\b|^annulla$|ho sbagliato( la)? spesa/.test(t)) {
-    const u = annullaUltimaSpesa_();
-    return { testo: u ? 'Fatto: ho tolto ' + u['TIPOLOGIA'] + ' da ' + eur_(u['IMPORTO']) + '.' : 'Non trovo spese dette a voce da togliere.' };
-  }
-  const s = capisciSpesa_(t);
-  if (s) {
-    registraSpesa_(s, '', 'voce');
-    const quando = iso_(s.data) === iso_(new Date()) ? 'oggi' : 'il ' + data_(iso_(s.data));
-    return { testo: 'Segnato: ' + s.tipologia.toLowerCase() + ', ' + eur_(s.importo) + ', ' + quando + '.' + (s.tipologia === 'Altro' ? ' Non ho capito la tipologia: la puoi cambiare nel foglio SPESE.' : '') + ' Se ho sbagliato, di\' "annulla".', aggiorna: true };
-  }
-  const tipo = tipologiaSpesa_(t);
-  const generiche = /spese (varie|extra|del mese|di questo mese|fuori dalle bollette|quotidiane)|altre spese|tutte le spese|uscite/.test(t);
-  if ((tipo || generiche) && /quanto|quante|spes[aoi]|speso|pagato|totale|elenco|lista|ultim/.test(t) && !c.ass && !c.tipo) {
-    const S = spese_(), oggi = new Date();
-    let mese = c.mesi.length ? c.mesi[0] : (/quest anno|nel \d{4}|in tutto l anno/.test(t) ? null : oggi.getMonth());
-    const anno = c.anno;
-    const del = S.filter(x => x.data.slice(0, 4) === anno && (mese === null || +x.data.slice(5, 7) === mese + 1) && (!tipo || x.tipo === tipo));
-    const quando = mese === null ? 'nel ' + anno : aMese_(mese) + (anno !== String(oggi.getFullYear()) ? ' ' + anno : '');
-    if (/ultim/.test(t) && del.length) { const u = del[0]; return { testo: 'L\'ultima ' + (tipo ? 'spesa di ' + tipo.toLowerCase() : 'spesa') + ' è del ' + data_(u.data) + ': ' + eur_(u.importo) + (tipo ? '' : ' (' + u.tipo.toLowerCase() + ')') + '.' }; }
-    if (!del.length) return { testo: cap_(quando) + ' non ho spese' + (tipo ? ' di ' + tipo.toLowerCase() : '') + ' registrate.' };
-    const tot = del.reduce((a, x) => a + x.importo, 0);
-    if (tipo) return { testo: cap_(quando) + ' hai speso ' + eur_(tot) + ' di ' + tipo.toLowerCase() + ' (' + del.length + (del.length === 1 ? ' volta' : ' volte') + ').' };
-    const per = {}; del.forEach(x => { per[x.tipo] = (per[x.tipo] || 0) + x.importo; });
-    return { testo: cap_(quando) + ' hai ' + eur_(tot) + ' di spese fuori dalle bollette: ' + Object.keys(per).sort((a, b) => per[b] - per[a]).map(k => k.toLowerCase() + ' ' + eur_(per[k])).join(', ') + '.' };
   }
   return null;
 }

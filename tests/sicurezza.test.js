@@ -74,3 +74,37 @@ test('la pagina senza token dice solo che EDITH è privata', () => {
   const out = E.doGet({ parameter: {} });
   assert.match(String(out.html || ''), /privata/i);
 });
+
+test("l'URL dello script non mostra mai l'app, neanche con il token giusto", () => {
+  const { E, k } = nuovo();
+  assert.match(E.doGet({ parameter: { k } }).html, /privata/);
+  assert.match(E.doGet({ parameter: {} }).html, /privata/);
+});
+
+test('EDITH.gs (il file unico) è uguale ai moduli di src: rilancia "npm run bundle" se fallisce', () => {
+  const fs = require('fs'), path = require('path');
+  const src = path.join(__dirname, '..', 'apps-script', 'src');
+  const atteso = fs.readdirSync(src).filter(f => f.endsWith('.gs')).sort().map(f => fs.readFileSync(path.join(src, f), 'utf8')).join('\n');
+  assert.ok(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'EDITH.gs'), 'utf8') === atteso, 'EDITH.gs non è aggiornato');
+});
+
+test("la riga dell'intestazione o una riga inventata non si possono modificare", () => {
+  const { E, k } = nuovo();
+  const foglio = E.CONFIG.SHEET_BOLLETTE;
+  const intest = E.__fogli[foglio].righe[0].slice();
+  for (const riga of [1, 0, -3, 2.5, 'x', 99999]) {
+    const r = post(E, { k, f: 'apiSegnaPagata', a: [foglio, riga] });
+    assert.strictEqual(r.ok, false, String(riga));
+    assert.strictEqual(r.errore, 'Riga non valida');
+  }
+  assert.deepStrictEqual(E.__fogli[foglio].righe[0], intest);
+});
+
+test("gli errori interni non arrivano all'app, ma finiscono nel LOG", () => {
+  const { E, k } = nuovo();
+  E.apiDati = () => { throw new Error('dettaglio interno di Google'); };
+  const r = post(E, { k, f: 'apiDati', a: [] });
+  assert.strictEqual(r.ok, false);
+  assert.ok(!/dettaglio interno/.test(r.errore), r.errore);
+  assert.ok(E.__fogli.LOG.righe.some(x => /dettaglio interno/.test(x[2])));
+});

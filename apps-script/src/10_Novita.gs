@@ -59,7 +59,7 @@ function testoRiepilogo_() {
     r.push('Da controllare nello Sheet (' + verifica.length + '):');
     verifica.forEach(p => r.push('• ' + p.tipo + (p.chi ? ' ' + p.chi : '') + ' – ' + (p.oggetto || '') + (p.link ? ' – ' + p.link : '')));
   }
-  try { const an = anomalie_(P); if (an.length) { r.push('Anomalie:'); an.forEach(x => r.push('• ' + x.testo)); } } catch (e) { }
+  try { const an = anomalie_(P); if (an.length) { r.push('Anomalie:'); an.forEach(x => r.push('• ' + x.testo)); } } catch (e) { ignora_('anomalie nel riepilogo', e); }
   const s = quota_();
   if (s) r.push('Spazio Google: ' + s.usato + ' GB su ' + s.limite + ' GB (' + Math.round(s.usato / s.limite * 100) + '%).');
   return { righe: r, settimana, verifica };
@@ -94,7 +94,7 @@ function briefing_(P) {
   try {
     const gravi = anomalie_(P).filter(a => a.livello !== 'basso' && !/scaduta da/.test(a.testo));
     if (gravi.length) t += 'Attenzione: ' + minuscola_(gravi[0].testo) + (gravi.length > 1 ? ' E c\'è ' + (gravi.length === 2 ? 'un\'altra cosa' : 'altro') + ': chiedimi "ci sono anomalie?".' : '') + ' ';
-  } catch (e) { }
+  } catch (e) { ignora_('anomalie nel briefing', e); }
   return t.trim();
 }
 
@@ -180,7 +180,7 @@ function anomalie_(P) {
     const trigger = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'elaboraTutto');
     if (!trigger) out.push({ livello: 'alto', testo: 'Il controllo automatico della posta non è attivo. In Apps Script lancia setup per riattivarlo.' });
     else if (ultimo && Date.now() - ultimo > 3 * 3600e3) out.push({ livello: 'alto', testo: 'L\'ultimo controllo automatico della posta è di ' + Math.round((Date.now() - ultimo) / 3600e3) + ' ore fa: dovrebbe girare ogni ora.' });
-  } catch (e) { }
+  } catch (e) { ignora_('controllo automatico', e); }
 
   // 8. spazio quasi pieno
   const s = quota_();

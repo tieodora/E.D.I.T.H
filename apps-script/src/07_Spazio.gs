@@ -106,7 +106,7 @@ function reportMailPesanti() {
       (m.payload.headers || []).forEach(x => { h[x.name.toLowerCase()] = x.value; });
       righe.push([false, new Date(Number(m.internalDate)), h['from'] || '', h['subject'] || '',
         round2_(Number(m.sizeEstimate) / 1048576), 'https://mail.google.com/mail/u/0/#all/' + m.threadId, id]);
-    } catch (e) {}
+    } catch (e) { ignora_('mail pesante ' + id, e); }
   }
   righe.sort((a, b) => b[4] - a[4]);
   const top = righe.slice(0, CONFIG.PESANTI_MAX);

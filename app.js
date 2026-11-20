@@ -1,252 +1,4 @@
-<!DOCTYPE html>
-<html lang="it">
-<head>
-<base target="_top">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="EDITH">
-<meta name="theme-color" content="#000000">
-<meta name="robots" content="noindex, nofollow">
-<meta name="referrer" content="no-referrer">
-<title>EDITH</title>
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon-180.png">
-<link rel="icon" type="image/png" href="icon-192.png">
-<style>
-:root{
-  --bg:#000;--card:#0a0f15;--card2:#0f1720;--ink:#e7f4fa;--muted:#7d92a3;--line:#16222e;
-  --accent:#25d9ff;--accent-2:#7ff6ff;--accent-ink:#00141a;--gold:#ffb627;--red:#ff4d5e;
-  --ok:#3ddc97;--ok-bg:rgba(61,220,151,.12);--warn:#ffb627;--warn-bg:rgba(255,182,39,.12);
-  --bad:#ff4d5e;--bad-bg:rgba(255,77,94,.12);--info:#25d9ff;--info-bg:rgba(37,217,255,.12);
-  --c1:#25d9ff;--c2:#ffb627;--c3:#3ddc97;--c4:#ff4d5e;--c5:#a78bfa;--c6:#7ff6ff;
-  --glow:0 0 18px rgba(37,217,255,.35);
-}
-*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
-body{min-height:100vh}
-svg.i{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
-header{position:sticky;top:0;z-index:5;background:linear-gradient(#000 70%,rgba(0,0,0,0));padding:calc(12px + env(safe-area-inset-top)) 16px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-.logo{display:flex;align-items:center;gap:10px}
-.logo img{width:32px;height:32px;border-radius:9px}
-header h1{font-size:17px;margin:0;letter-spacing:.32em;font-weight:700}
-header small{color:var(--muted);font-size:12px;display:block;margin-top:1px}
-.ib{width:40px;height:40px;display:inline-flex;align-items:center;justify-content:center;border-radius:12px;background:var(--card);border:1px solid var(--line);color:var(--accent);padding:0;cursor:pointer}
-.ib:active{transform:scale(.95)}
-.ib.gira svg{animation:s 1s linear infinite}
-main{padding:0 16px 100px;max-width:720px;margin:0 auto}
-section.view{display:none}section.view.on{display:block}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin:0 0 12px}
-.card h2{font-size:12px;margin:0 0 10px;display:flex;justify-content:space-between;align-items:center;gap:8px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted);font-weight:600}
-.kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
-.kpi{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;position:relative;overflow:hidden}
-.kpi:before{content:"";position:absolute;left:0;top:12px;bottom:12px;width:2px;background:var(--accent);box-shadow:var(--glow);border-radius:2px}
-.kpi b{display:block;font-size:19px;font-variant-numeric:tabular-nums;margin-top:2px}
-.kpi span{color:var(--muted);font-size:12px}
-.row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--line)}
-.row:first-of-type{border-top:0}
-.row .t{min-width:0;flex:1}.row .t b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
-.row .t small{color:var(--muted)}
-.tag{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
-.tag-b{background:var(--accent);box-shadow:0 0 6px var(--accent)}.tag-a{background:var(--gold);box-shadow:0 0 6px var(--gold)}
-.amt{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
-.pill{display:inline-block;font-size:11px;padding:2px 8px;border-radius:999px;letter-spacing:.02em}
-.p-ok{background:var(--ok-bg);color:var(--ok)}.p-warn{background:var(--warn-bg);color:var(--warn)}
-.p-bad{background:var(--bad-bg);color:var(--bad)}.p-info{background:var(--info-bg);color:var(--info)}
-button,.btn{font:inherit;border:0;border-radius:12px;padding:10px 14px;background:var(--accent);color:var(--accent-ink);font-weight:700;cursor:pointer}
-button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
-button.small{padding:6px 11px;font-size:13px}
-button.danger{background:transparent;color:var(--red);border:1px solid rgba(255,77,94,.45)}
-button:disabled{opacity:.5}
-.chart{display:flex;align-items:flex-end;gap:4px;height:150px;padding-top:6px}
-.chart .col{flex:1;display:flex;flex-direction:column-reverse;height:100%;position:relative}
-.chart .seg{width:100%;border-radius:3px 3px 0 0}
-.chart .lab{position:absolute;bottom:-18px;width:100%;text-align:center;font-size:10px;color:var(--muted)}
-.chart-wrap{padding-bottom:20px}
-.legend{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:12px;color:var(--muted);margin-top:8px}
-.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
-.hbar{margin:8px 0}.hbar .top{display:flex;justify-content:space-between;font-size:13px}
-.hbar .track{height:6px;background:var(--line);border-radius:6px;overflow:hidden;margin-top:5px}
-.hbar .fill{height:100%;border-radius:6px}
-.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;scrollbar-width:none}
-.chip{flex:none;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:7px 13px;font-size:13px;font-weight:500}
-.chip.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-nav{position:fixed;left:0;right:0;bottom:0;background:rgba(5,8,12,.94);backdrop-filter:blur(10px);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:6}
-nav button{flex:1;background:transparent;color:var(--muted);border-radius:0;padding:9px 0 11px;font-size:11px;font-weight:600;letter-spacing:.06em;display:flex;flex-direction:column;align-items:center;gap:3px}
-nav button.on{color:var(--accent)}
-nav button.on svg{filter:drop-shadow(0 0 6px rgba(37,217,255,.7))}
-.meter{height:8px;background:var(--line);border-radius:6px;overflow:hidden;margin:6px 0}
-.meter div{height:100%;background:var(--accent);box-shadow:var(--glow)}
-select{font:inherit;padding:7px;border-radius:10px;border:1px solid var(--line);background:var(--card2);color:var(--ink);max-width:170px}
-input[type=checkbox]{width:20px;height:20px;accent-color:var(--accent)}
-.muted{color:var(--muted)}.center{text-align:center}
-a{color:var(--accent)}
-.off{padding:10px 0;border-top:1px solid var(--line)}.off:first-of-type{border-top:0}.off b{display:block}.off small{color:var(--muted);font-size:12px}
-.off dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:14px}.off dt{color:var(--muted)}.off dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;word-break:break-all}
-.anom{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
-.anom:first-of-type{border-top:0}
-.anom i{flex:none;width:8px;height:8px;border-radius:50%;margin-top:7px}
-.anom .alto{background:var(--red);box-shadow:0 0 8px var(--red)}.anom .medio{background:var(--gold);box-shadow:0 0 8px var(--gold)}.anom .basso{background:var(--muted)}
-/* impostazioni */
-#setup{display:none;position:fixed;inset:0;z-index:40;background:var(--bg);padding:calc(24px + env(safe-area-inset-top)) 16px 32px;overflow:auto}
-#setup .box{max-width:460px;margin:0 auto;display:flex;flex-direction:column;gap:10px}
-#setup img{width:84px;height:84px;border-radius:22px;align-self:center;margin-bottom:6px}
-#setup h3{margin:16px 0 0;font-size:12px;text-transform:uppercase;letter-spacing:.14em;color:var(--muted)}
-#setup label{font-size:13px;color:var(--muted)}
-#setup input:not([type=checkbox]),#setup select{font:inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink);width:100%;max-width:none}
-#setup .sw{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:var(--card);border:1px solid var(--line);border-radius:12px;color:var(--ink);font-size:15px}
-#setup .err{color:var(--bad);font-size:14px;min-height:20px}
-/* Edith */
-#v-edith.on{display:flex;flex-direction:column;height:calc(100vh - 150px - env(safe-area-inset-top) - env(safe-area-inset-bottom));min-height:420px}
-.stage{flex:none;display:flex;flex-direction:column;align-items:center;padding:6px 0 4px;cursor:pointer;user-select:none}
-.orb{--l:0;position:relative;width:168px;height:168px}
-.orb .ring{position:absolute;inset:0;border-radius:50%;border:2px solid rgba(37,217,255,.55);box-shadow:0 0 18px rgba(37,217,255,.25),inset 0 0 18px rgba(37,217,255,.15)}
-.orb .r1{inset:0;border-style:dashed;border-width:3px;animation:gira 22s linear infinite}
-.orb .r2{inset:16px;border-color:rgba(127,246,255,.35);border-width:1px;border-style:dotted;animation:gira 14s linear infinite reverse}
-.orb .r3{inset:30px;border-color:transparent;border-top-color:var(--gold);border-right-color:rgba(255,182,39,.0);border-width:3px;animation:gira 6s linear infinite}
-.orb .core{position:absolute;inset:44px;border-radius:50%;
-  background:radial-gradient(circle at 40% 38%,#e9fdff 0,#7ff6ff 18%,#25d9ff 42%,#0a5a77 74%,#02141c 100%);
-  box-shadow:0 0 calc(24px + var(--l) * 50px) rgba(37,217,255,calc(.45 + var(--l) * .5)),0 0 calc(60px + var(--l) * 80px) rgba(37,217,255,calc(.15 + var(--l) * .3));
-  transform:scale(calc(1 + var(--l) * .22));transition:transform .06s linear}
-.orb.ascolta .core{animation:respira 3.2s ease-in-out infinite}
-.orb.pensa .r3{animation-duration:1s}
-.orb.pausa{opacity:.45;filter:grayscale(.6)}
-.orb.pausa .ring{animation-play-state:paused}
-@keyframes gira{to{transform:rotate(360deg)}}
-@keyframes respira{0%,100%{filter:brightness(.9)}50%{filter:brightness(1.15)}}
-@keyframes s{to{transform:rotate(360deg)}}
-#stato{margin-top:10px;font-size:12px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
-#sentito{min-height:22px;margin-top:4px;color:var(--muted);font-size:14px;text-align:center;padding:0 10px;font-style:italic}
-#msgs{flex:1;overflow-y:auto;padding:6px 0;-webkit-mask-image:linear-gradient(transparent 0,#000 24px)}
-.b{max-width:86%;padding:9px 13px;border-radius:16px;margin:6px 0;white-space:pre-wrap;word-wrap:break-word}
-.b.me{margin-left:auto;background:#0f2a35;color:var(--ink);border:1px solid rgba(37,217,255,.25);border-bottom-right-radius:4px}
-.b.ed{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
-.b.scrive:empty::before{content:'• • •';letter-spacing:3px;color:var(--muted);animation:pulsa 1s infinite}
-@keyframes pulsa{50%{opacity:.3}}
-.b.ia::after{content:'IA locale';display:block;margin-top:6px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
-.b.piano{opacity:.5}
-.ask{display:flex;gap:8px;padding-top:8px;flex:none}
-.ask input{flex:1;font:inherit;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink);min-width:0}
-.ask input:focus{outline:none;border-color:rgba(37,217,255,.6)}
-.ask .ib{width:46px;height:46px}
-.actions{display:flex;gap:10px;justify-content:flex-end;margin-top:12px}
-#toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#0f2a35;color:var(--ink);border:1px solid rgba(37,217,255,.35);padding:10px 14px;border-radius:12px;font-size:14px;display:none;max-width:90%;z-index:20}
-.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:flex-end;justify-content:center;z-index:30}
-.modal .sheet{background:var(--card);border:1px solid var(--line);width:100%;max-width:560px;border-radius:18px 18px 0 0;padding:18px 16px calc(18px + env(safe-area-inset-bottom))}
-.modal pre{white-space:pre-wrap;font:inherit;color:var(--muted);max-height:40vh;overflow:auto}
-</style>
-</head>
-<body>
-<svg width="0" height="0" style="position:absolute">
-  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/></symbol>
-  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6.5A1.5 1.5 0 0 0 5 4.5v15A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5V8z"/><path d="M14 3v5h5M8.5 13h7M8.5 16.5h5"/></symbol>
-  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3.5 6.5 8.5 6.5 8.5-6.5"/></symbol>
-  <symbol id="i-orb" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="3.2 2"/><circle cx="12" cy="12" r="4.2"/></symbol>
-  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3.5V8h4.5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20.5V16h-4.5"/></symbol>
-  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
-  <symbol id="i-send" viewBox="0 0 24 24"><path d="M5 12h13M12 5l7 7-7 7"/></symbol>
-</svg>
-
-<header>
-  <div class="logo"><img src="icon-192.png" alt=""><div><h1>EDITH</h1><small id="sub">caricamento…</small></div></div>
-  <div style="display:flex;gap:8px">
-    <button class="ib" id="btnElabora" onclick="elabora()" title="Controlla la posta" aria-label="Controlla la posta"><svg class="i"><use href="#i-sync"/></svg></button>
-    <button class="ib" id="btnCfg" onclick="mostraSetup(true)" title="Impostazioni" aria-label="Impostazioni"><svg class="i"><use href="#i-gear"/></svg></button>
-  </div>
-</header>
-
-<div id="setup"><div class="box">
-  <img src="icon-192.png" alt="">
-  <div id="cfgConn" style="display:flex;flex-direction:column;gap:10px">
-    <h3>Collegamento</h3>
-    <p class="muted" style="margin:0">Serve una volta sola: l'URL del deployment Voce (finisce con <b>/exec</b>) e il token creato da <b>creaTokenVoce</b>. Restano solo su questo telefono.</p>
-    <label for="cfgU">URL del deployment</label><input id="cfgU" type="url" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
-    <label for="cfgK">Token</label><input id="cfgK" type="password" autocomplete="off">
-    <div class="err" id="cfgErr"></div>
-    <button onclick="salvaSetup()">Collega</button>
-  </div>
-  <h3>Voce</h3>
-  <label class="sw">Ti ascolto appena apri l'app<input type="checkbox" id="cfgAscolta" onchange="mem('ascolto', this.checked ? '1' : '0')"></label>
-  <label class="sw">Rispondo ad alta voce<input type="checkbox" id="cfgParla" onchange="S.voce = this.checked; mem('parla', this.checked ? '1' : '0')"></label>
-  <label for="cfgVoce">Voce di Edith</label>
-  <select id="cfgVoce" onchange="mem('voce_nome', this.value)"></select>
-  <p class="muted" style="margin:0;font-size:13px">Le voci migliori sono "Google" o "Premium". Se senti solo voci robotiche, scarica una voce italiana dalle impostazioni del telefono (vedi la guida).</p>
-  <h3>IA sul telefono <span class="muted" style="font-weight:400">· sperimentale</span></h3>
-  <label class="sw">Due chiacchiere con l'IA locale<input type="checkbox" id="cfgIA" onchange="cambiaIA(this.checked)"></label>
-  <p class="muted" style="margin:0;font-size:13px">Facoltativa: le chiacchiere di base funzionano anche senza. Gratis e privata: un piccolo modello (scaricalo col Wi-Fi) gira direttamente sul telefono e i tuoi dati non escono da qui. Serve Chrome aggiornato. Fa solo due chiacchiere: conti, scadenze e posta restano alle risposte precise di sempre.</p>
-  <label for="cfgIAq">Modello</label>
-  <select id="cfgIAq" onchange="cambiaQualita(this.value)"><option value="veloce">Veloce · Gemma 3 1B, circa 700 MB</option><option value="brava">Più brava · Gemma 2 2B, circa 1,5 GB, più lenta</option></select>
-  <div id="iaStato" class="muted" style="font-size:13px"></div>
-  <div class="actions"><button class="ghost" style="flex:1" onclick="sbloccaVoce();parla('Ciao Teo, sono Edith. Questa è la mia voce.')">Prova la voce</button>
-  <button style="flex:1" id="cfgChiudi" onclick="mostraSetup(false)">Chiudi</button></div>
-  <p class="muted" style="font-size:12px;margin:16px 0 0;text-align:center">Versione app: <b id="ver"></b></p>
-  <details style="margin-top:12px"><summary class="muted" style="font-size:12px">Diagnostica</summary><pre id="diag" style="white-space:pre-wrap;font-size:11px;color:var(--muted);margin:8px 0 0"></pre></details>
-</div></div>
-
-<main>
-  <!-- EDITH -->
-  <section class="view on" id="v-edith">
-    <div class="stage" onclick="tocco()">
-      <div class="orb" id="orb"><div class="ring r1"></div><div class="ring r2"></div><div class="ring r3"></div><div class="core"></div></div>
-      <div id="stato">Avvio…</div>
-      <div id="sentito"></div>
-    </div>
-    <div id="msgs"></div>
-    <div class="chips" id="sugg"></div>
-    <div class="ask">
-      <input id="q" placeholder="Parla, oppure scrivi qui…" autocomplete="off" enterkeyhint="send" onkeydown="if(event.key==='Enter')invia()">
-      <button class="ib" onclick="invia()" aria-label="Invia"><svg class="i"><use href="#i-send"/></svg></button>
-    </div>
-  </section>
-
-  <!-- HOME -->
-  <section class="view" id="v-home">
-    <div class="kpis" id="kpis"></div>
-    <div class="card"><h2>Controllo sistema</h2><div id="anomalie" class="muted">—</div></div>
-    <div class="card"><h2>Da pagare <span id="apertiTot"></span></h2><div id="aperte"></div></div>
-    <div class="card" id="cSpese" style="display:none"><h2>Altre spese del mese <span id="speseTot"></span></h2><div id="spese"></div><p class="muted" style="font-size:12px;margin:8px 0 0">Dille a EDITH: "ho fatto benzina, sono 50 euro". L'affitto lo segno da sola ogni mese.</p></div>
-    <div class="card" id="cOfferte" style="display:none"><h2>Le tue offerte</h2><div id="offerte"></div></div>
-    <div class="card"><h2 id="tMesi">Bollette per mese</h2><div class="chart-wrap"><div class="chart" id="chart"></div></div><div class="legend" id="legend"></div></div>
-    <div class="card"><h2>Ripartizione bollette</h2><div id="perTipo"></div></div>
-    <div class="card"><h2>Assicurazioni per ramo</h2><div id="perRamo"></div></div>
-  </section>
-
-  <!-- PRATICHE -->
-  <section class="view" id="v-pratiche">
-    <div class="chips" id="filtri"></div>
-    <div class="card" id="lista"></div>
-  </section>
-
-  <!-- POSTA -->
-  <section class="view" id="v-posta">
-    <div class="card"><h2>Spazio Google</h2><div id="spazio" class="muted">—</div></div>
-    <div class="card"><h2>Newsletter <button class="ghost small" onclick="analizzaIscr()">Analizza</button></h2>
-      <div id="iscr" class="muted">Tocca "Analizza" per cercare le newsletter.</div>
-      <div class="actions"><button class="danger small" onclick="eseguiIscr()">Esegui azioni scelte…</button></div></div>
-    <div class="card"><h2>Pulizia guidata <button class="ghost small" onclick="anteprima()">Anteprima</button></h2>
-      <div id="regole" class="muted">—</div>
-      <div class="actions"><button class="danger small" onclick="eseguiPul()">Esegui regole spuntate…</button></div></div>
-    <div class="card"><h2>Mail più pesanti <button class="ghost small" onclick="reportPes()">Aggiorna</button></h2>
-      <div id="pesantiTot" class="muted" style="margin-bottom:6px"></div>
-      <div id="pesanti" class="muted">—</div>
-      <p class="muted" style="font-size:12px;margin:8px 0 0">Tutto finisce nel Cestino di Gmail: la cancellazione definitiva la fai tu quando vuoi.</p>
-      <div class="actions"><button class="danger small" onclick="cestinaPes()">Cestina selezionate…</button></div></div>
-  </section>
-</main>
-
-<nav>
-  <button class="on" data-v="edith" onclick="vai('edith')"><svg class="i"><use href="#i-orb"/></svg>EDITH</button>
-  <button data-v="home" onclick="vai('home')"><svg class="i"><use href="#i-home"/></svg>HOME</button>
-  <button data-v="pratiche" onclick="vai('pratiche')"><svg class="i"><use href="#i-doc"/></svg>PRATICHE</button>
-  <button data-v="posta" onclick="vai('posta')"><svg class="i"><use href="#i-mail"/></svg>POSTA</button>
-</nav>
-
-<div id="toast"></div>
-<div class="modal" id="modal"><div class="sheet"><h3 id="mT"></h3><pre id="mB"></pre>
-  <div class="actions"><button class="ghost" onclick="chiudiModal()">Annulla</button><button class="danger" id="mOk">Conferma</button></div></div></div>
-
-<script>
+// EDITH – logica dell'app (voce, chiamate allo script, schermate)
 const S = { dati: null, filtro: 'Tutte', storia: [], voce: false, posta: null, iscr: null };
 const COL = ['--c1','--c2','--c3','--c4','--c5','--c6'].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
 const MESI = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
@@ -254,10 +6,11 @@ const $ = id => document.getElementById(id);
 const eur = n => n === null || n === undefined ? '—' : '€ ' + Number(n).toLocaleString('it-IT', {minimumFractionDigits:2, maximumFractionDigits:2});
 const dt = s => s ? s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4) : '—';
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// i link arrivano dalle mail: accetto solo https e mailto, mai "javascript:" o simili
+const href = u => /^(https:\/\/|mailto:)/i.test(String(u == null ? '' : u).trim()) ? esc(String(u).trim()) : '#';
 function store(k, v){ try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch(e) { return null; } }
 
-// Dentro Apps Script usa google.script.run; sulla pagina GitHub chiama lo script via /exec con il token.
-const GAS = !!(window.google && google.script && google.script.run);
+// L'app vive solo su GitHub Pages e chiama lo script via /exec con il token.
 function mem(k, v){ try { if (v === undefined) return localStorage.getItem('edith_' + k); if (v === null) localStorage.removeItem('edith_' + k); else localStorage.setItem('edith_' + k, v); } catch(e) { return null; } }
 // registro delle ultime chiamate (⚙︎ › Diagnostica), per capire dove si ferma
 function diag(riga){ try { const d = JSON.parse(mem('diag') || '[]'); d.unshift(new Date().toLocaleTimeString('it-IT') + ' ' + riga); mem('diag', JSON.stringify(d.slice(0, 15))); } catch(e) {} }
@@ -294,14 +47,13 @@ async function remoto(fn, args){
   return j.r;
 }
 function call(fn, ...args){
-  if (!GAS) return remoto(fn, args).catch(e => { toast('Errore: ' + e.message); throw e; });
-  return new Promise((ok, ko) => google.script.run.withSuccessHandler(ok).withFailureHandler(e => { toast('Errore: ' + (e && e.message || e)); ko(e); })[fn](...args));
+  return remoto(fn, args).catch(e => { toast('Errore: ' + e.message); throw e; });
 }
 function mostraSetup(si, err){
   $('setup').style.display = si ? 'block' : 'none';
   $('cfgU').value = mem('url') || ''; $('cfgK').value = mem('k') || ''; $('cfgErr').textContent = err || '';
-  $('cfgConn').style.display = GAS ? 'none' : 'flex';
-  $('cfgChiudi').style.display = GAS || (mem('url') && mem('k')) ? '' : 'none';
+  $('cfgConn').style.display = 'flex';
+  $('cfgChiudi').style.display = mem('url') && mem('k') ? '' : 'none';
   if (si) { try { $('diag').textContent = JSON.parse(mem('diag') || '[]').join('\n') || 'nessuna chiamata registrata'; } catch(e) {} riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; $('cfgIA').checked = mem('ia2') !== '0'; $('cfgIAq').value = mem('ia_qualita') || 'veloce'; if (!navigator.gpu) iaStato('Su questo browser non è disponibile (manca WebGPU).'); else if (!IA.motore && !IA.caricamento) iaStato(mem('ia2') === '0' ? 'Spenta.' : 'Accesa: si sveglia da sola alla prima chiacchiera che le regole non conoscono.'); }
 }
 async function salvaSetup(){
@@ -349,12 +101,13 @@ function render(d, daCache){
   ].map(([l, v]) => '<div class="kpi"><span>' + l + '</span><b>' + v + '</b></div>').join('');
 
   const ap = d.aperte;
+  S.aperte = ap;   // il tasto "Pagata" passa solo la posizione: nessun testo delle mail finisce dentro onclick
   $('apertiTot').textContent = ap.length ? '' : '';
-  $('aperte').innerHTML = ap.length ? ap.map(p =>
+  $('aperte').innerHTML = ap.length ? ap.map((p, i) =>
     '<div class="row"><div class="t"><b>' + esc(p.tipo) + ' · ' + esc(p.chi) + '</b><small>Scadenza ' + dt(p.scadenza) + ' ' + pillStato(p.stato) + '</small></div>' +
     '<div class="center"><div class="amt">' + eur(p.importo) + '</div>' +
-    (p.stato === 'Da verificare' ? '<a href="' + esc(p.link) + '" target="_blank">apri mail</a>'
-      : '<button class="small" onclick="pagata(\'' + esc(p.foglio) + '\',' + p.riga + ',\'' + esc(p.tipo + ' ' + p.chi).replace(/'/g, '') + '\')">Pagata ✓</button>') +
+    (p.stato === 'Da verificare' ? '<a href="' + href(p.link) + '" target="_blank" rel="noopener">apri mail</a>'
+      : '<button class="small" onclick="pagata(' + i + ')">Pagata ✓</button>') +
     '</div></div>').join('') : '<p class="muted">Niente da pagare.</p>';
 
   $('tMesi').textContent = 'Bollette ' + d.anno + ' per mese';
@@ -376,9 +129,10 @@ function barre(lista){
     '<div class="track"><div class="fill" style="width:' + (x.totale / max * 100) + '%;background:' + COL[i % COL.length] + '"></div></div></div>').join('');
 }
 
-async function pagata(foglio, riga, nome){
-  if (!await conferma('Segnare come pagata?', nome + '\nLo stato diventa "Conclusa" e l\'attività in Calendar viene spuntata.')) return;
-  render(await call('apiSegnaPagata', foglio, riga));
+async function pagata(i){
+  const p = (S.aperte || [])[i]; if (!p) return;
+  if (!await conferma('Segnare come pagata?', p.tipo + ' ' + p.chi + '\nLo stato diventa "Conclusa" e l\'attività in Calendar viene spuntata.')) return;
+  render(await call('apiSegnaPagata', p.foglio, p.riga));
   toast('Segnata come pagata ✓');
 }
 async function elabora(){
@@ -400,7 +154,7 @@ function renderLista(){
   $('lista').innerHTML = P.length ? P.map(p =>
     '<div class="row"><div class="t"><b>' + '<i class="tag ' + (p.area === 'assicurazioni' ? 'tag-a' : 'tag-b') + '"></i>' + esc(p.tipo) + ' · ' + esc(p.chi) + '</b>' +
     '<small>' + (p.emissione ? 'Emessa ' + dt(p.emissione) + ' · ' : '') + 'Scad. ' + dt(p.scadenza) + ' ' + pillStato(p.stato) +
-    (p.link ? ' · <a href="' + esc(p.link) + '" target="_blank">mail</a>' : '') + '</small></div>' +
+    (p.link ? ' · <a href="' + href(p.link) + '" target="_blank" rel="noopener">mail</a>' : '') + '</small></div>' +
     '<div class="amt">' + eur(p.importo) + '</div></div>').join('') : '<p class="muted">Nessuna pratica.</p>';
 }
 
@@ -417,7 +171,7 @@ function renderPosta(){
   const I = S.iscr ? S.iscr.righe : [];
   $('iscr').innerHTML = I.length ? I.slice(0, 80).map(r =>
     '<div class="row"><div class="t"><b>' + esc(r['MITTENTE']) + '</b><small>' + r['N. MAIL'] + ' mail · ' + r['MB STIMATI'] + ' MB · ' + esc(r['METODO']) +
-    (r['ESITO'] ? '<br>' + esc(r['ESITO']) : '') + (/Manuale/.test(r['METODO']) && r['LINK DISISCRIZIONE'] ? ' · <a href="' + esc(r['LINK DISISCRIZIONE']) + '" target="_blank">apri link</a>' : '') + '</small></div>' +
+    (r['ESITO'] ? '<br>' + esc(r['ESITO']) : '') + (/Manuale/.test(r['METODO']) && r['LINK DISISCRIZIONE'] ? ' · <a href="' + href(r['LINK DISISCRIZIONE']) + '" target="_blank" rel="noopener">apri link</a>' : '') + '</small></div>' +
     '<select onchange="call(\'apiSalvaAzione\',' + r.riga + ',this.value).then(()=>{S.iscr.righe.find(x=>x.riga==' + r.riga + ').AZIONE=this.value;const x=S.iscr.righe.find(y=>y.riga==' + r.riga + ');x.ESITO=\'\';toast(\'Salvato\')})">' +
     S.iscr.azioni.map(a => '<option' + (a === r['AZIONE'] ? ' selected' : '') + '>' + esc(a) + '</option>').join('') + '</select></div>').join('')
     : 'Nessuna iscrizione analizzata. Tocca "Analizza".';
@@ -437,7 +191,7 @@ function renderPosta(){
     ' <button class="ghost small" onclick="selTutte(' + (sel.length < H.length) + ')">' + (sel.length < H.length ? 'Seleziona tutte' : 'Deseleziona') + '</button>' : '';
   $('pesanti').innerHTML = H.length ? H.map(r =>
     '<div class="row"><div class="t"><b>' + esc(r['OGGETTO']) + '</b><small>' + esc(String(r['MITTENTE']).replace(/<.*>/, '')) + ' · ' + dt(r['DATA']) +
-    ' · <a href="' + esc(r['LINK']) + '" target="_blank">apri</a></small></div><div class="amt">' + r['MB'] + ' MB</div>' +
+    ' · <a href="' + href(r['LINK']) + '" target="_blank" rel="noopener">apri</a></small></div><div class="amt">' + r['MB'] + ' MB</div>' +
     '<input type="checkbox"' + (r['CESTINA'] === true ? ' checked' : '') + ' onchange="spunta(\'MAIL PESANTI\',' + r.riga + ',\'CESTINA\',this.checked)"></div>').join('')
     : 'Tocca "Aggiorna" per elencare le mail oltre 5 MB.';
 }
@@ -527,7 +281,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov · v14';
+const VERSIONE = '20 nov · v15';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -664,7 +418,7 @@ async function chiedi(q, aVoce){
   V.pensando = false;
   // a voce, una frase corta che non capisco è quasi sempre rumore (radio, altre persone): la ignoro
   if (aVoce && r.capito === false && norm(q).split(' ').length < 4) { io.classList.add('piano'); setTimeout(() => io.remove(), 2500); return riprendi(); }
-  const chiacchiera = r.capito === false && !GAS && !!navigator.gpu && mem('ia2') !== '0' && !CONTI.test(q) && (!aVoce || norm(q).split(' ').length >= 3);
+  const chiacchiera = r.capito === false && !!navigator.gpu && mem('ia2') !== '0' && !CONTI.test(q) && (!aVoce || norm(q).split(' ').length >= 3);
   if (chiacchiera && !IA.motore) caricaIA().catch(() => {});   // la sveglio solo quando serve; intanto rispondono le regole
   if (chiacchiera && IA.motore) {
     V.pensando = true; aggiornaStato();
@@ -1037,7 +791,6 @@ async function caricaIA(){
   if (IA.motore) return IA.motore;
   if (IA.caricamento) return IA.caricamento;
   IA.caricamento = (async () => {
-    if (GAS) throw new Error('disponibile solo nell\'app su GitHub');
     if (!navigator.gpu) throw new Error('questo browser non supporta WebGPU: aggiorna Chrome');
     const scheda = await navigator.gpu.requestAdapter();
     if (!scheda) throw new Error('il telefono non mette a disposizione la grafica (WebGPU)');
@@ -1105,19 +858,20 @@ S.attesa = null;
   $('sugg').innerHTML = ['Cosa devo pagare?', 'Che offerta ho?', 'Ci sono anomalie?', 'Raccontami una curiosità', 'Giochiamo', 'Briefing', 'Quanto ho speso quest\'anno?', 'Quanto spenderò a fine anno?', 'Consigli per risparmiare']
     .map(s => '<button class="chip" onclick="sbloccaVoce();chiedi(this.textContent,false)">' + esc(s) + '</button>').join('');
   try { const c = JSON.parse(mem('cache') || 'null'); if (c && c.kpi) render(c, true); } catch(e) {}
-  if (!GAS && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-  if (!GAS) {
-    if (location.hash.length > 2) {
-      const h = new URLSearchParams(location.hash.slice(1));
-      if (h.get('u')) mem('url', h.get('u')); if (h.get('k')) mem('k', h.get('k'));
-      try { history.replaceState(null, '', location.pathname + location.search); } catch(e) {}
-    }
-    if (!mem('url') || !mem('k')) { mostraSetup(true); aggiornaStato(); return; }
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if (location.hash.length > 2) {
+    const h = new URLSearchParams(location.hash.slice(1));
+    // link di collegamento: vale solo con URL e token insieme, così un link costruito da altri
+    // non può dirottare il token già salvato verso un altro script
+    const u = h.get('u'), k = h.get('k');
+    if (u && k && /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u)) { mem('url', u); mem('k', k); }
+    try { history.replaceState(null, '', location.pathname + location.search); } catch(e) {}
   }
+  if (!mem('url') || !mem('k')) { mostraSetup(true); aggiornaStato(); return; }
   const v = store('edith_view'); if (v) vai(v);
   call('apiDati').then(d => { render(d); }).catch(() => {
     if (S.dati) $('sub').textContent = (navigator.onLine ? 'non raggiungibile' : 'offline') + ' · ' + $('sub').textContent.replace(/, aggiorno…$/, '');
-    else if (!GAS) $('sub').textContent = 'non collegata: tocca l\'ingranaggio';
+    else $('sub').textContent = 'non collegata: tocca l\'ingranaggio';
   });
   // saluto e ascolto: apri l'app e parla. Il primo saluto del giorno (con il briefing) lo chiedo allo script,
   // gli altri li faccio subito qui con i dati già sul telefono, senza aspettare la rete.
@@ -1125,6 +879,3 @@ S.attesa = null;
   if (S.dati && mem('saluto') === oggiK) salutoLocale();
   else { mem('saluto', oggiK); chiedi('Edith, sono io', false).then(() => {}); $('msgs').firstChild && $('msgs').firstChild.remove(); }
 })();
-</script>
-</body>
-</html>

@@ -62,7 +62,7 @@ function registraAccesso_(funzione, esito) {
     if (sh.getLastRow() === 0) sh.appendRow(['QUANDO', 'FUNZIONE', 'ESITO']);
     sh.appendRow([new Date(), funzione, esito]);
     if (sh.getLastRow() > 1000) sh.deleteRows(2, 200);
-  } catch (e) { }
+  } catch (e) { console.log('ACCESSI non scrivibile: ' + funzione + ' ' + esito + ' (' + e.message + ')'); }
 }
 
 /** Conta i tentativi falliti: al quinto nella stessa ora manda un avviso. */
