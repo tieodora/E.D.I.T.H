@@ -127,6 +127,14 @@ a{color:var(--accent)}
   <div class="err" id="cfgErr"></div>
   <button onclick="salvaSetup()">Collega</button>
   </div>
+  <h3 style="margin:18px 0 0">Calibra "Edith, sono io"</h3>
+  <p class="muted" style="margin:0;font-size:13px">Ripeti la frase 5 volte con il tuo tono normale: EDITH impara come la trascrive il tuo telefono e da quel momento parte solo con quella.</p>
+  <div class="actions" style="display:flex;gap:8px;flex-wrap:wrap">
+    <button style="flex:1" onclick="calibra()">🎙 Calibra</button>
+    <button class="ghost" style="flex:1" onclick="provaParola()">Prova</button>
+    <button class="ghost" style="flex:1" onclick="azzeraFrasi()">Azzera</button></div>
+  <div id="calStato" style="font-weight:600;min-height:22px"></div>
+  <div id="calFrasi" class="muted" style="font-size:13px"></div>
   <h3 style="margin:18px 0 0">Voce di Edith</h3>
   <p class="muted" style="margin:0;font-size:13px">Le voci migliori sono quelle "Premium", "Avanzata" o "Google". Se senti solo voci robotiche, scarica una voce italiana di qualità dalle impostazioni del telefono (vedi la guida).</p>
   <select id="cfgVoce" onchange="mem('voce_nome', this.value)" style="font:inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--ink)"></select>
@@ -228,7 +236,7 @@ function mostraSetup(si, err){
   $('cfgU').value = mem('url') || ''; $('cfgK').value = mem('k') || ''; $('cfgErr').textContent = err || '';
   $('cfgConn').style.display = GAS ? 'none' : 'flex';
   $('cfgChiudi').style.display = GAS || (mem('url') && mem('k')) ? '' : 'none';
-  if (si) riempiVoci();
+  if (si) { riempiVoci(); mostraFrasi(); $('calStato').textContent = ''; }
 }
 async function salvaSetup(){
   const u = $('cfgU').value.trim(), k = $('cfgK').value.trim();
@@ -394,9 +402,75 @@ async function cestinaPes(){
 // ------------------------------------------------ EDITH
 const norm = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
 // "Edith, sono io" anche se la dettatura scrive "Edit", "Eddie", "Edi"…
-// Molto tollerante: la dettatura scrive anche "it sono", "ed io", "edi sono io"…
-const ED = /\b(h?ed+[iy]?t*h?|it|ed|edi|eddie|eddy|edita|editha|aedith|e dit|elit|edict|aedit|ehi dit)\b/;
-const eParolaOrdine = t => /\bsono io\b/.test(t) || (ED.test(t) && /\b(sono|io|so)\b/.test(t));
+// Parola d'ordine: deve somigliare davvero a "Edith, sono io" (o a come il tuo telefono la trascrive,
+// imparato con la calibrazione). "Edith" da solo, "sono io" da solo o frasi lunghe non bastano.
+const FRASI_BASE = ['edith sono io', 'edit sono io', 'eddie sono io', 'edi sono io', 'eddy sono io'];
+function frasiImparate(){ try { const f = JSON.parse(mem('frasi') || '[]'); return Array.isArray(f) ? f : []; } catch(e) { return []; } }
+function lev(a, b){
+  const d = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) { let prev = d[0]; d[0] = i;
+    for (let j = 1; j <= b.length; j++) { const t = d[j]; d[j] = Math.min(d[j] + 1, d[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = t; } }
+  return d[b.length];
+}
+const simil = (a, b) => 1 - lev(a, b) / Math.max(a.length, b.length, 1);
+function eParolaOrdine(t){
+  const w = String(t || '').split(' ').filter(Boolean);
+  if (!w.length || w.length > 7) return false;           // la parola d'ordine si dice da sola, non dentro un discorso
+  const prova = (f, soglia) => { const k = f.split(' ').length;
+    for (let len = Math.max(1, k - 1); len <= k + 1; len++)
+      for (let i = 0; i + len <= w.length; i++) if (simil(w.slice(i, i + len).join(' '), f) >= soglia) return true;
+    return false; };
+  return FRASI_BASE.some(f => prova(f, 0.8)) || frasiImparate().some(f => prova(f, 0.86));
+}
+
+// ------------------------------------------------ calibrazione della parola d'ordine
+async function ascoltaUnaVolta(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) throw new Error('riconoscimento vocale non disponibile');
+  if (recV) { try { recV.abort(); } catch(e) {} recV = null; }
+  return new Promise((ok, ko) => {
+    const r = new SR(); r.lang = 'it-IT'; r.interimResults = false; r.maxAlternatives = 5;
+    let alt = [], err = '';
+    r.onresult = e => { for (let i = 0; i < e.results.length; i++) for (let j = 0; j < e.results[i].length; j++) alt.push(norm(e.results[i][j].transcript)); };
+    r.onerror = e => { err = e.error; };
+    r.onend = () => err && err !== 'no-speech' ? ko(new Error(err)) : ok(alt.filter(Boolean));
+    r.start();
+  });
+}
+async function calibra(){
+  const st = $('calStato'), giri = 5, nuove = [];
+  S.calibro = true;
+  try {
+    for (let g = 1; g <= giri; g++) {
+      st.textContent = 'Di\' "Edith, sono io" (' + g + ' di ' + giri + ')…';
+      const alt = await ascoltaUnaVolta();
+      if (!alt.length) { st.textContent = 'Non ti ho sentito, riprova.'; g--; await new Promise(r => setTimeout(r, 900)); continue; }
+      // tiene solo trascrizioni corte e plausibili, al massimo le prime 3 interpretazioni
+      alt.slice(0, 3).forEach(a => { if (a.split(' ').length <= 5 && a.length >= 4 && nuove.indexOf(a) === -1) nuove.push(a); });
+      st.textContent = 'Ho sentito: "' + alt[0] + '"';
+      await new Promise(r => setTimeout(r, 900));
+    }
+    const tutte = frasiImparate().concat(nuove).filter((x, i, a) => a.indexOf(x) === i).slice(-20);
+    mem('frasi', JSON.stringify(tutte));
+    st.textContent = 'Calibrazione fatta: ho imparato ' + tutte.length + ' modi in cui il telefono scrive la tua frase.';
+    mostraFrasi();
+  } catch(e) { st.textContent = 'Non riesco ad ascoltare (' + e.message + ').'; }
+  S.calibro = false;
+  if (S.veglia) veglia();
+}
+async function provaParola(){
+  const st = $('calStato'); S.calibro = true;
+  try {
+    st.textContent = 'Di\' qualcosa: la frase giusta o una qualsiasi…';
+    const alt = await ascoltaUnaVolta();
+    const ok = alt.some(eParolaOrdine);
+    st.textContent = (alt[0] ? '"' + alt[0] + '": ' : '') + (ok ? '✅ riconosciuta, partirei.' : '❌ non partirei.');
+  } catch(e) { st.textContent = 'Non riesco ad ascoltare (' + e.message + ').'; }
+  S.calibro = false;
+  if (S.veglia) veglia();
+}
+function azzeraFrasi(){ mem('frasi', null); mostraFrasi(); $('calStato').textContent = 'Calibrazione azzerata.'; }
+function mostraFrasi(){ const f = frasiImparate(); $('calFrasi').textContent = f.length ? 'Varianti imparate: ' + f.join(' · ') : 'Nessuna variante imparata: uso solo "Edith, sono io" e simili.'; }
 function sblocca(){
   if (!eParolaOrdine(norm($('pass').value))) { toast('Non ti riconosco… scrivi o detta "Edith, sono io"'); return; }
   store('edith_ok', '1'); apriChat(true);
@@ -546,14 +620,16 @@ function toggleVeglia(){
 }
 function veglia(){
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR || !S.veglia || S.auto || rec || recV || document.visibilityState !== 'visible') return;
+  if (!SR || !S.veglia || S.auto || S.calibro || rec || recV || document.visibilityState !== 'visible') return;
   let svegliata = false, bloccato = false;
   try {
     recV = new SR(); recV.lang = 'it-IT'; recV.continuous = true; recV.interimResults = true; recV.maxAlternatives = 5;
     recV.onresult = e => {
-      for (let i = e.resultIndex; i < e.results.length && !svegliata; i++)
+      for (let i = e.resultIndex; i < e.results.length && !svegliata; i++) {
+        if (!e.results[i].isFinal) continue;   // decide solo sulla frase completa, non sui pezzi
         for (let j = 0; j < e.results[i].length; j++)
           if (eParolaOrdine(norm(e.results[i][j].transcript))) { svegliata = true; break; }
+      }
       if (svegliata) try { recV.abort(); } catch(err) {}
     };
     recV.onerror = e => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') bloccato = true; };
