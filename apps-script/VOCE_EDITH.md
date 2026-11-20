@@ -6,7 +6,7 @@ L'app completa (Home, Pratiche, Posta, Edith) è già nel tuo repository GitHub,
 **Da adesso puoi saltare questo passo per sempre:** segui [AUTOMATICO.md](AUTOMATICO.md) una volta e lo script si aggiorna da solo da GitHub. Se preferisci farlo a mano un'ultima volta:
 
 1. In `EDITH.gs` sostituisci tutto con il nuovo [EDITH.gs](EDITH.gs) e salva. È un unico file con tutte le novità.
-2. In `Index` sostituisci tutto con [Index.html](Index.html) e salva.
+2. Se in Apps Script c'è ancora il file `Index`, eliminalo: l'app vive su GitHub e lo script non mostra più pagine.
 3. Nel menu delle funzioni scegli **installaNovita** e premi **Esegui**. Google ti chiede di nuovo l'autorizzazione (ora EDITH ti scrive anche delle mail): accetta. Ti arriva subito una mail "[EDITH] Avvisi attivi".
 
 ## 2. Crea il token segreto

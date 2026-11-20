@@ -52,7 +52,6 @@ jobs:
       - name: Prepara i file
         if: steps.segreti.outputs.pronto == 'si'
         run: |
-          cp index.html apps-script/src/Index.html
           if [ -n "$SHEET_ID" ]; then
             sed -i "s/SHEET_ID: ''/SHEET_ID: '$SHEET_ID'/" apps-script/src/00_Config.gs
           fi

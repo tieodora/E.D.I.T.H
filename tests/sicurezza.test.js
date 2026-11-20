@@ -74,3 +74,9 @@ test('la pagina senza token dice solo che EDITH è privata', () => {
   const out = E.doGet({ parameter: {} });
   assert.match(String(out.html || ''), /privata/i);
 });
+
+test("l'URL dello script non mostra mai l'app, neanche con il token giusto", () => {
+  const { E, k } = nuovo();
+  assert.match(E.doGet({ parameter: { k } }).html, /privata/);
+  assert.match(E.doGet({ parameter: {} }).html, /privata/);
+});

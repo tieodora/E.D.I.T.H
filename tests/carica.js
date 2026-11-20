@@ -78,7 +78,7 @@ function carica(opz = {}) {
     Gmail: { Users: { getProfile: () => ({ emailAddress: 'io@example.com' }) } },
     Drive: { About: { get: () => ({ storageQuota: { usage: 5 * 2 ** 30, limit: 15 * 2 ** 30, usageInDrive: 2 * 2 ** 30 } }) } },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: t => ({ testo: t, setMimeType() { return this; } }) },
-    HtmlService: {},
+    HtmlService: { createHtmlOutput: h => ({ html: h, setTitle() { return this; } }) },
   };
   vm.createContext(ctx);
   const files = fs.readdirSync(SRC).filter(f => f.endsWith('.gs')).sort();

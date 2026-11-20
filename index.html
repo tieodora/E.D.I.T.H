@@ -10,6 +10,8 @@
 <meta name="theme-color" content="#000000">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
+<!-- Il browser carica codice e dati solo da qui: se un testo da una mail provasse a eseguire codice, non potrebbe mandare il token altrove -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; worker-src 'self' blob:; connect-src 'self' https://script.google.com https://script.googleusercontent.com https://cdn.jsdelivr.net https://huggingface.co https://*.huggingface.co https://*.hf.co https://raw.githubusercontent.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; media-src 'self' data: blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
 <title>EDITH</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -253,10 +255,11 @@ const $ = id => document.getElementById(id);
 const eur = n => n === null || n === undefined ? '—' : '€ ' + Number(n).toLocaleString('it-IT', {minimumFractionDigits:2, maximumFractionDigits:2});
 const dt = s => s ? s.slice(8,10) + '/' + s.slice(5,7) + '/' + s.slice(0,4) : '—';
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// i link arrivano dalle mail: accetto solo https e mailto, mai "javascript:" o simili
+const href = u => /^(https:\/\/|mailto:)/i.test(String(u == null ? '' : u).trim()) ? esc(String(u).trim()) : '#';
 function store(k, v){ try { if (v === undefined) return sessionStorage.getItem(k); sessionStorage.setItem(k, v); } catch(e) { return null; } }
 
-// Dentro Apps Script usa google.script.run; sulla pagina GitHub chiama lo script via /exec con il token.
-const GAS = !!(window.google && google.script && google.script.run);
+// L'app vive solo su GitHub Pages e chiama lo script via /exec con il token.
 function mem(k, v){ try { if (v === undefined) return localStorage.getItem('edith_' + k); if (v === null) localStorage.removeItem('edith_' + k); else localStorage.setItem('edith_' + k, v); } catch(e) { return null; } }
 // registro delle ultime chiamate (⚙︎ › Diagnostica), per capire dove si ferma
 function diag(riga){ try { const d = JSON.parse(mem('diag') || '[]'); d.unshift(new Date().toLocaleTimeString('it-IT') + ' ' + riga); mem('diag', JSON.stringify(d.slice(0, 15))); } catch(e) {} }
@@ -293,14 +296,13 @@ async function remoto(fn, args){
   return j.r;
 }
 function call(fn, ...args){
-  if (!GAS) return remoto(fn, args).catch(e => { toast('Errore: ' + e.message); throw e; });
-  return new Promise((ok, ko) => google.script.run.withSuccessHandler(ok).withFailureHandler(e => { toast('Errore: ' + (e && e.message || e)); ko(e); })[fn](...args));
+  return remoto(fn, args).catch(e => { toast('Errore: ' + e.message); throw e; });
 }
 function mostraSetup(si, err){
   $('setup').style.display = si ? 'block' : 'none';
   $('cfgU').value = mem('url') || ''; $('cfgK').value = mem('k') || ''; $('cfgErr').textContent = err || '';
-  $('cfgConn').style.display = GAS ? 'none' : 'flex';
-  $('cfgChiudi').style.display = GAS || (mem('url') && mem('k')) ? '' : 'none';
+  $('cfgConn').style.display = 'flex';
+  $('cfgChiudi').style.display = mem('url') && mem('k') ? '' : 'none';
   if (si) { try { $('diag').textContent = JSON.parse(mem('diag') || '[]').join('\n') || 'nessuna chiamata registrata'; } catch(e) {} riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; $('cfgIA').checked = mem('ia2') !== '0'; $('cfgIAq').value = mem('ia_qualita') || 'veloce'; if (!navigator.gpu) iaStato('Su questo browser non è disponibile (manca WebGPU).'); else if (!IA.motore && !IA.caricamento) iaStato(mem('ia2') === '0' ? 'Spenta.' : 'Accesa: si sveglia da sola alla prima chiacchiera che le regole non conoscono.'); }
 }
 async function salvaSetup(){
@@ -348,12 +350,13 @@ function render(d, daCache){
   ].map(([l, v]) => '<div class="kpi"><span>' + l + '</span><b>' + v + '</b></div>').join('');
 
   const ap = d.aperte;
+  S.aperte = ap;   // il tasto "Pagata" passa solo la posizione: nessun testo delle mail finisce dentro onclick
   $('apertiTot').textContent = ap.length ? '' : '';
-  $('aperte').innerHTML = ap.length ? ap.map(p =>
+  $('aperte').innerHTML = ap.length ? ap.map((p, i) =>
     '<div class="row"><div class="t"><b>' + esc(p.tipo) + ' · ' + esc(p.chi) + '</b><small>Scadenza ' + dt(p.scadenza) + ' ' + pillStato(p.stato) + '</small></div>' +
     '<div class="center"><div class="amt">' + eur(p.importo) + '</div>' +
-    (p.stato === 'Da verificare' ? '<a href="' + esc(p.link) + '" target="_blank">apri mail</a>'
-      : '<button class="small" onclick="pagata(\'' + esc(p.foglio) + '\',' + p.riga + ',\'' + esc(p.tipo + ' ' + p.chi).replace(/'/g, '') + '\')">Pagata ✓</button>') +
+    (p.stato === 'Da verificare' ? '<a href="' + href(p.link) + '" target="_blank" rel="noopener">apri mail</a>'
+      : '<button class="small" onclick="pagata(' + i + ')">Pagata ✓</button>') +
     '</div></div>').join('') : '<p class="muted">Niente da pagare.</p>';
 
   $('tMesi').textContent = 'Bollette ' + d.anno + ' per mese';
@@ -375,9 +378,10 @@ function barre(lista){
     '<div class="track"><div class="fill" style="width:' + (x.totale / max * 100) + '%;background:' + COL[i % COL.length] + '"></div></div></div>').join('');
 }
 
-async function pagata(foglio, riga, nome){
-  if (!await conferma('Segnare come pagata?', nome + '\nLo stato diventa "Conclusa" e l\'attività in Calendar viene spuntata.')) return;
-  render(await call('apiSegnaPagata', foglio, riga));
+async function pagata(i){
+  const p = (S.aperte || [])[i]; if (!p) return;
+  if (!await conferma('Segnare come pagata?', p.tipo + ' ' + p.chi + '\nLo stato diventa "Conclusa" e l\'attività in Calendar viene spuntata.')) return;
+  render(await call('apiSegnaPagata', p.foglio, p.riga));
   toast('Segnata come pagata ✓');
 }
 async function elabora(){
@@ -399,7 +403,7 @@ function renderLista(){
   $('lista').innerHTML = P.length ? P.map(p =>
     '<div class="row"><div class="t"><b>' + '<i class="tag ' + (p.area === 'assicurazioni' ? 'tag-a' : 'tag-b') + '"></i>' + esc(p.tipo) + ' · ' + esc(p.chi) + '</b>' +
     '<small>' + (p.emissione ? 'Emessa ' + dt(p.emissione) + ' · ' : '') + 'Scad. ' + dt(p.scadenza) + ' ' + pillStato(p.stato) +
-    (p.link ? ' · <a href="' + esc(p.link) + '" target="_blank">mail</a>' : '') + '</small></div>' +
+    (p.link ? ' · <a href="' + href(p.link) + '" target="_blank" rel="noopener">mail</a>' : '') + '</small></div>' +
     '<div class="amt">' + eur(p.importo) + '</div></div>').join('') : '<p class="muted">Nessuna pratica.</p>';
 }
 
@@ -416,7 +420,7 @@ function renderPosta(){
   const I = S.iscr ? S.iscr.righe : [];
   $('iscr').innerHTML = I.length ? I.slice(0, 80).map(r =>
     '<div class="row"><div class="t"><b>' + esc(r['MITTENTE']) + '</b><small>' + r['N. MAIL'] + ' mail · ' + r['MB STIMATI'] + ' MB · ' + esc(r['METODO']) +
-    (r['ESITO'] ? '<br>' + esc(r['ESITO']) : '') + (/Manuale/.test(r['METODO']) && r['LINK DISISCRIZIONE'] ? ' · <a href="' + esc(r['LINK DISISCRIZIONE']) + '" target="_blank">apri link</a>' : '') + '</small></div>' +
+    (r['ESITO'] ? '<br>' + esc(r['ESITO']) : '') + (/Manuale/.test(r['METODO']) && r['LINK DISISCRIZIONE'] ? ' · <a href="' + href(r['LINK DISISCRIZIONE']) + '" target="_blank" rel="noopener">apri link</a>' : '') + '</small></div>' +
     '<select onchange="call(\'apiSalvaAzione\',' + r.riga + ',this.value).then(()=>{S.iscr.righe.find(x=>x.riga==' + r.riga + ').AZIONE=this.value;const x=S.iscr.righe.find(y=>y.riga==' + r.riga + ');x.ESITO=\'\';toast(\'Salvato\')})">' +
     S.iscr.azioni.map(a => '<option' + (a === r['AZIONE'] ? ' selected' : '') + '>' + esc(a) + '</option>').join('') + '</select></div>').join('')
     : 'Nessuna iscrizione analizzata. Tocca "Analizza".';
@@ -436,7 +440,7 @@ function renderPosta(){
     ' <button class="ghost small" onclick="selTutte(' + (sel.length < H.length) + ')">' + (sel.length < H.length ? 'Seleziona tutte' : 'Deseleziona') + '</button>' : '';
   $('pesanti').innerHTML = H.length ? H.map(r =>
     '<div class="row"><div class="t"><b>' + esc(r['OGGETTO']) + '</b><small>' + esc(String(r['MITTENTE']).replace(/<.*>/, '')) + ' · ' + dt(r['DATA']) +
-    ' · <a href="' + esc(r['LINK']) + '" target="_blank">apri</a></small></div><div class="amt">' + r['MB'] + ' MB</div>' +
+    ' · <a href="' + href(r['LINK']) + '" target="_blank" rel="noopener">apri</a></small></div><div class="amt">' + r['MB'] + ' MB</div>' +
     '<input type="checkbox"' + (r['CESTINA'] === true ? ' checked' : '') + ' onchange="spunta(\'MAIL PESANTI\',' + r.riga + ',\'CESTINA\',this.checked)"></div>').join('')
     : 'Tocca "Aggiorna" per elencare le mail oltre 5 MB.';
 }
@@ -652,7 +656,7 @@ async function chiedi(q, aVoce){
   V.pensando = false;
   // a voce, una frase corta che non capisco è quasi sempre rumore (radio, altre persone): la ignoro
   if (aVoce && r.capito === false && norm(q).split(' ').length < 4) { io.classList.add('piano'); setTimeout(() => io.remove(), 2500); return riprendi(); }
-  const chiacchiera = r.capito === false && !GAS && !!navigator.gpu && mem('ia2') !== '0' && !CONTI.test(q) && (!aVoce || norm(q).split(' ').length >= 3);
+  const chiacchiera = r.capito === false && !!navigator.gpu && mem('ia2') !== '0' && !CONTI.test(q) && (!aVoce || norm(q).split(' ').length >= 3);
   if (chiacchiera && !IA.motore) caricaIA().catch(() => {});   // la sveglio solo quando serve; intanto rispondono le regole
   if (chiacchiera && IA.motore) {
     V.pensando = true; aggiornaStato();
@@ -1025,7 +1029,6 @@ async function caricaIA(){
   if (IA.motore) return IA.motore;
   if (IA.caricamento) return IA.caricamento;
   IA.caricamento = (async () => {
-    if (GAS) throw new Error('disponibile solo nell\'app su GitHub');
     if (!navigator.gpu) throw new Error('questo browser non supporta WebGPU: aggiorna Chrome');
     const scheda = await navigator.gpu.requestAdapter();
     if (!scheda) throw new Error('il telefono non mette a disposizione la grafica (WebGPU)');
@@ -1093,19 +1096,20 @@ S.attesa = null;
   $('sugg').innerHTML = ['Cosa devo pagare?', 'Che offerta ho?', 'Ci sono anomalie?', 'Raccontami una curiosità', 'Giochiamo', 'Briefing', 'Quanto ho speso quest\'anno?', 'Quanto spenderò a fine anno?', 'Consigli per risparmiare']
     .map(s => '<button class="chip" onclick="sbloccaVoce();chiedi(this.textContent,false)">' + esc(s) + '</button>').join('');
   try { const c = JSON.parse(mem('cache') || 'null'); if (c && c.kpi) render(c, true); } catch(e) {}
-  if (!GAS && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
-  if (!GAS) {
-    if (location.hash.length > 2) {
-      const h = new URLSearchParams(location.hash.slice(1));
-      if (h.get('u')) mem('url', h.get('u')); if (h.get('k')) mem('k', h.get('k'));
-      try { history.replaceState(null, '', location.pathname + location.search); } catch(e) {}
-    }
-    if (!mem('url') || !mem('k')) { mostraSetup(true); aggiornaStato(); return; }
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
+  if (location.hash.length > 2) {
+    const h = new URLSearchParams(location.hash.slice(1));
+    // link di collegamento: vale solo con URL e token insieme, così un link costruito da altri
+    // non può dirottare il token già salvato verso un altro script
+    const u = h.get('u'), k = h.get('k');
+    if (u && k && /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(u)) { mem('url', u); mem('k', k); }
+    try { history.replaceState(null, '', location.pathname + location.search); } catch(e) {}
   }
+  if (!mem('url') || !mem('k')) { mostraSetup(true); aggiornaStato(); return; }
   const v = store('edith_view'); if (v) vai(v);
   call('apiDati').then(d => { render(d); }).catch(() => {
     if (S.dati) $('sub').textContent = (navigator.onLine ? 'non raggiungibile' : 'offline') + ' · ' + $('sub').textContent.replace(/, aggiorno…$/, '');
-    else if (!GAS) $('sub').textContent = 'non collegata: tocca l\'ingranaggio';
+    else $('sub').textContent = 'non collegata: tocca l\'ingranaggio';
   });
   // saluto e ascolto: apri l'app e parla. Il primo saluto del giorno (con il briefing) lo chiedo allo script,
   // gli altri li faccio subito qui con i dati già sul telefono, senza aspettare la rete.
