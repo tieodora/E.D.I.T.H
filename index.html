@@ -157,7 +157,10 @@ footer { background: var(--card); border-top: 1px solid var(--line); padding: 14
   async function api(f, ...a) {
     // corpo text/plain: niente preflight CORS, Apps Script lo accetta
     const res = await fetch(S.url, { method: 'POST', body: JSON.stringify({ k: S.k, f: f, a: a }) });
-    const j = await res.json();
+    const txt = await res.text();
+    let j;
+    try { j = JSON.parse(txt); }
+    catch (e) { throw new Error('lo script risponde con una pagina di accesso Google: il deployment Voce deve avere accesso "Chiunque", non "Solo io"'); }
     if (!j.ok) throw new Error(j.errore || 'Errore');
     return j.r;
   }
