@@ -61,3 +61,45 @@ test('previsione a fine anno', () => {
 test('mai cancellazioni: nessuna risposta propone di eliminare definitivamente', () => {
   for (const q of ['pulisci la posta', 'cancella tutto', 'svuota il cestino']) assert.doesNotMatch(una(q).testo, /definitiv/i);
 });
+
+// Frasi di italiano parlato: ognuna con un pezzo che la risposta deve contenere (o "capito: false").
+const FRASI = [
+  ['cosa scade questo mese', /novembre non scade niente.*AXA/],
+  ['cosa scade a dicembre', /AXA/],
+  ['ho bollette da pagare', /Nessuna bolletta da pagare.*AXA/],
+  ['la prossima bolletta quando arriva', /Piemonte Energy.*circa ogni \d+ giorni/],
+  ['quanto ho speso di luce quest\'anno', /sola luce non ne hai.*€ 242,00/],
+  ['quanto ho speso di gas', /€ 126,00 di solo gas.*€ 242,00.*€ 368,00/],
+  ['quanto ho speso in tutto', /€ 1\.242,42.*€ 368,00 di bollette.*€ 874,42 di assicurazioni/],
+  ['quanto mi costa la macchina all\'anno', /€ 779,00/],
+  ['la sara quanto costa', /€ 95,42/],
+  ['quando ho pagato la sara', /pagata il 20\/09\/2026/],
+  ['assicurazione salute', /€ 95,42/],
+  ['quali assicurazioni ho', /2 assicurazioni.*AXA.*Sara/],
+  ['spendo più di luce o di gas', /luce e gas € 242,00.*gas € 126,00/],
+  ['riassunto', /€ 368,00 di bollette/],
+  ['zitta', /./, r => r.fine === true],
+  ['pulisci la posta', /Cestino/],
+  ['ho mail pesanti', /Posta/],
+  ['sono stanca', /Riposa|momento per te/],
+  ['mi ricordi di pagare la luce', /Google Tasks/],
+  ['quanto ho risparmiato', /non lo so dire/],
+  ['come stai', /bene/i],
+  ['che tempo fa', /meteo/],
+  ['eh', null],
+  ['boh', null],
+];
+for (const [q, atteso, extra] of FRASI) {
+  test('frase parlata: "' + q + '"', () => {
+    const r = una(q);
+    if (atteso === null) return assert.strictEqual(r.capito, false, r.testo);
+    assert.match(r.testo, atteso);
+    assert.notStrictEqual(r.capito, false);
+    if (extra) assert.ok(extra(r));
+  });
+}
+
+test('conversazione: "sì" a una proposta di confronto', () => {
+  const [, r] = conversa(['quanto ho risparmiato', 'sì']);
+  assert.match(r.testo, /aumentato|diminuito|Stesso/);
+});

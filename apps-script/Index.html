@@ -82,6 +82,8 @@ select{font:inherit;padding:7px;border-radius:10px;border:1px solid var(--line);
 input[type=checkbox]{width:20px;height:20px;accent-color:var(--accent)}
 .muted{color:var(--muted)}.center{text-align:center}
 a{color:var(--accent)}
+.off{padding:10px 0;border-top:1px solid var(--line)}.off:first-of-type{border-top:0}.off b{display:block}.off small{color:var(--muted);font-size:12px}
+.off dl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:8px 0 0;font-size:14px}.off dt{color:var(--muted)}.off dd{margin:0;text-align:right;font-variant-numeric:tabular-nums;word-break:break-all}
 .anom{display:flex;gap:10px;padding:9px 0;border-top:1px solid var(--line);font-size:14px}
 .anom:first-of-type{border-top:0}
 .anom i{flex:none;width:8px;height:8px;border-radius:50%;margin-top:7px}
@@ -170,7 +172,7 @@ a{color:var(--accent)}
   <p class="muted" style="margin:0;font-size:13px">Le voci migliori sono "Google" o "Premium". Se senti solo voci robotiche, scarica una voce italiana dalle impostazioni del telefono (vedi la guida).</p>
   <h3>IA sul telefono <span class="muted" style="font-weight:400">· sperimentale</span></h3>
   <label class="sw">Usa l'IA locale quando non capisco<input type="checkbox" id="cfgIA" onchange="cambiaIA(this.checked)"></label>
-  <p class="muted" style="margin:0;font-size:13px">Gratis e privata: un piccolo modello (circa 1 GB, scaricalo col Wi-Fi) gira direttamente sul telefono e i tuoi dati non escono da qui. Serve Chrome aggiornato. Le risposte su importi e scadenze restano quelle precise di sempre; l'IA interviene solo sulle domande che le regole non capiscono.</p>
+  <p class="muted" style="margin:0;font-size:13px">Gratis e privata: un piccolo modello (circa 700 MB, scaricalo col Wi-Fi) gira direttamente sul telefono e i tuoi dati non escono da qui. Serve Chrome aggiornato. Le risposte su importi e scadenze restano quelle precise di sempre; l'IA interviene solo sulle domande che le regole non capiscono.</p>
   <div id="iaStato" class="muted" style="font-size:13px"></div>
   <div class="actions"><button class="ghost" style="flex:1" onclick="sbloccaVoce();parla('Ciao Teo, sono Edith. Questa è la mia voce.')">Prova la voce</button>
   <button style="flex:1" id="cfgChiudi" onclick="mostraSetup(false)">Chiudi</button></div>
@@ -198,6 +200,7 @@ a{color:var(--accent)}
     <div class="kpis" id="kpis"></div>
     <div class="card"><h2>Controllo sistema</h2><div id="anomalie" class="muted">—</div></div>
     <div class="card"><h2>Da pagare <span id="apertiTot"></span></h2><div id="aperte"></div></div>
+    <div class="card" id="cOfferte" style="display:none"><h2>Le tue offerte</h2><div id="offerte"></div></div>
     <div class="card"><h2 id="tMesi">Bollette per mese</h2><div class="chart-wrap"><div class="chart" id="chart"></div></div><div class="legend" id="legend"></div></div>
     <div class="card"><h2>Ripartizione bollette</h2><div id="perTipo"></div></div>
     <div class="card"><h2>Assicurazioni per ramo</h2><div id="perRamo"></div></div>
@@ -333,7 +336,7 @@ function render(d, daCache){
   $('legend').innerHTML = d.tipi.map((t, i) => '<span><i style="background:' + COL[i % COL.length] + '"></i>' + esc(t) + '</span>').join('') || '<span>Nessuna bolletta quest\'anno</span>';
   $('perTipo').innerHTML = barre(d.perTipo);
   $('perRamo').innerHTML = barre(d.perRamo);
-  renderLista(); renderAnomalie(d);
+  renderLista(); renderAnomalie(d); renderOfferte(d);
 }
 function barre(lista){
   if (!lista.length) return '<p class="muted">Nessun dato per quest\'anno.</p>';
@@ -451,6 +454,29 @@ async function cestinaPes(){
 }
 
 
+// ------------------------------------------------ offerte in corso (lette dalle bollette)
+function renderOfferte(d){
+  const O = d.offerte || [];
+  $('cOfferte').style.display = O.length ? '' : 'none';
+  const n = (v, dec) => String(v).replace('.', ',');
+  const dt = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : '';
+  $('offerte').innerHTML = O.map(o => {
+    const v = [];
+    if (o.tipoPrezzo) v.push(['Prezzo', o.tipoPrezzo]);
+    if (o.prezzoLuce) v.push(['Luce', n(o.prezzoLuce) + ' €/kWh']);
+    if (o.prezzoGas) v.push(['Gas', n(o.prezzoGas) + ' €/Smc']);
+    if (o.quotaFissa) v.push(['Quota fissa', '€ ' + o.quotaFissa.toFixed(2).replace('.', ',') + '/mese']);
+    if (o.potenza) v.push(['Potenza', n(o.potenza) + ' kW']);
+    if (o.scadenza) v.push(['Condizioni fino al', dt(o.scadenza)]);
+    if (o.consumoLuce) v.push(['Consumo annuo luce', o.consumoLuce + ' kWh']);
+    if (o.consumoGas) v.push(['Consumo annuo gas', o.consumoGas + ' Smc']);
+    if (o.pod) v.push(['POD', o.pod]);
+    if (o.pdr) v.push(['PDR', o.pdr]);
+    return '<div class="off"><b>' + esc(o.chi) + (o.offerta ? ' · ' + esc(o.offerta) : '') + '</b><small>' + esc(o.tipo) + (o.mercato ? ' · mercato ' + esc(o.mercato.toLowerCase()) : '') + (o.da ? ' · dalla bolletta del ' + dt(o.da) : '') + '</small>' +
+      '<dl>' + v.map(([k, x]) => '<dt>' + esc(k) + '</dt><dd>' + esc(x) + '</dd>').join('') + '</dl></div>';
+  }).join('');
+}
+
 // ------------------------------------------------ controllo sistema (Home)
 function renderAnomalie(d){
   const a = d.anomalie || [];
@@ -460,7 +486,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov, 14:15';
+const VERSIONE = '20 nov, 15:30';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -679,14 +705,18 @@ async function caricaIA(){
     const scheda = await navigator.gpu.requestAdapter();
     if (!scheda) throw new Error('il telefono non mette a disposizione la grafica (WebGPU)');
     const f16 = scheda.features && scheda.features.has('shader-f16');
-    const modello = 'Qwen2.5-1.5B-Instruct-' + (f16 ? 'q4f16_1' : 'q4f32_1') + '-MLC';
+    // Gemma 3 1B: circa 700 MB, buon italiano, leggera per un telefono; senza f16 ripiego su Llama 3.2 1B
+    const modello = f16 ? 'gemma3-1b-it-q4f16_1-MLC' : 'Llama-3.2-1B-Instruct-q4f32_1-MLC';
     iaStato('Preparo l\'IA…');
     const webllm = await import(IA_LIB);
+    const vecchio = mem('ia_modello');
+    if (vecchio && vecchio !== modello && webllm.deleteModelAllInfoInCache) webllm.deleteModelAllInfoInCache(vecchio).catch(() => {});   // libero lo spazio del modello precedente
+    mem('ia_modello', modello);
     // il modello gira in un worker separato: l'app resta sempre usabile mentre scarica o pensa
     const lavoratore = new Worker(new URL('ia-worker.js', location.href), { type: 'module' });
     const m = await webllm.CreateWebWorkerMLCEngine(lavoratore, modello, { initProgressCallback: p => {
       const pc = Math.round((p.progress || 0) * 100);
-      iaStato(/cache|caricamento|loading from cache/i.test(p.text || '') ? 'Carico l\'IA dalla memoria del telefono… ' + pc + '%' : 'Scarico l\'IA (una volta sola, circa 1 GB)… ' + pc + '%');
+      iaStato(/cache|caricamento|loading from cache/i.test(p.text || '') ? 'Carico l\'IA dalla memoria del telefono… ' + pc + '%' : 'Scarico l\'IA (una volta sola, circa 700 MB)… ' + pc + '%');
     } });
     IA.motore = m; iaStato('Pronta: risponde direttamente dal telefono.');
     return m;
@@ -714,9 +744,20 @@ async function chiediIA(q){
   const storia = S.storia.slice(-6).map(x => ({ role: x.ruolo === 'io' ? 'user' : 'assistant', content: x.testo }));
   let timer;
   const tempo = new Promise((_, ko) => { timer = setTimeout(() => { m.interruptGenerate && m.interruptGenerate(); ko(new Error('troppo lenta')); }, 25000); });
-  const r = await Promise.race([m.chat.completions.create({ messages: [{ role: 'system', content: sistema }, ...storia, { role: 'user', content: q }], temperature: 0.4, max_tokens: 150 }), tempo]).finally(() => clearTimeout(timer));
+  // le istruzioni vanno nel primo messaggio: alcuni modelli piccoli (Gemma) non accettano il ruolo "system"
+  const msgs = storia.concat([{ role: 'user', content: q }]);
+  while (msgs.length && msgs[0].role !== 'user') msgs.shift();
+  for (let i = msgs.length - 1; i > 0; i--) if (msgs[i].role === msgs[i - 1].role) msgs.splice(i - 1, 1);   // ruoli alternati
+  msgs[0] = { role: 'user', content: sistema + '\n\nDOMANDA\n' + msgs[0].content };
+  const r = await Promise.race([m.chat.completions.create({ messages: msgs, temperature: 0.4, max_tokens: 150 }), tempo]).finally(() => clearTimeout(timer));
   const t = (r.choices[0].message.content || '').replace(/[*#_`]/g, '').trim();
   return t || null;
+}
+
+function salutoLocale(){
+  const h = new Date().getHours(), n = (S.dati.aperte || []).filter(p => p.stato !== 'Da verificare').length;
+  const ciao = ['Bentornata, Teo.', 'Eccoti, Teo.', (h < 13 ? 'Buongiorno' : h < 18 ? 'Buon pomeriggio' : 'Buonasera') + ', Teo.'][Math.floor(Math.random() * 3)];
+  rispondi(ciao + ' ' + (n ? 'Hai ' + n + (n === 1 ? ' pagamento' : ' pagamenti') + ' in sospeso.' : 'Tutto in ordine.') + ' Dimmi pure.');
 }
 
 // ------------------------------------------------ avvio
@@ -724,7 +765,7 @@ S.attesa = null;
 (function avvio(){
   $('ver').textContent = VERSIONE;
   S.voce = mem('parla') !== '0';
-  $('sugg').innerHTML = ['Cosa devo pagare?', 'Ci sono anomalie?', 'Briefing', 'Quanto ho speso quest\'anno?', 'Quanto spenderò a fine anno?', 'Consigli per risparmiare']
+  $('sugg').innerHTML = ['Cosa devo pagare?', 'Che offerta ho?', 'Ci sono anomalie?', 'Briefing', 'Quanto ho speso quest\'anno?', 'Quanto spenderò a fine anno?', 'Consigli per risparmiare']
     .map(s => '<button class="chip" onclick="sbloccaVoce();chiedi(this.textContent,false)">' + esc(s) + '</button>').join('');
   try { const c = JSON.parse(mem('cache') || 'null'); if (c && c.kpi) render(c, true); } catch(e) {}
   if (!GAS && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});
@@ -742,9 +783,11 @@ S.attesa = null;
     if (S.dati) $('sub').textContent = (navigator.onLine ? 'non raggiungibile' : 'offline') + ' · ' + $('sub').textContent.replace(/, aggiorno…$/, '');
     else if (!GAS) $('sub').textContent = 'non collegata: tocca l\'ingranaggio';
   });
-  // saluto e ascolto: apri l'app e parla
-  chiedi('Edith, sono io', false).then(() => {});
-  $('msgs').firstChild && $('msgs').firstChild.remove();   // non mostro la mia "parola d'ordine"
+  // saluto e ascolto: apri l'app e parla. Il primo saluto del giorno (con il briefing) lo chiedo allo script,
+  // gli altri li faccio subito qui con i dati già sul telefono, senza aspettare la rete.
+  const oggiK = new Date().toDateString();
+  if (S.dati && mem('saluto') === oggiK) salutoLocale();
+  else { mem('saluto', oggiK); chiedi('Edith, sono io', false).then(() => {}); $('msgs').firstChild && $('msgs').firstChild.remove(); }
 })();
 </script>
 </body>

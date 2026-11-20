@@ -30,6 +30,7 @@ const CONFIG = {
   SHEET_PESANTI: 'MAIL PESANTI',
   SHEET_LOG: 'LOG',
   SHEET_ACCESSI: 'ACCESSI',
+  SHEET_OFFERTE: 'OFFERTE',
 
   // Promemoria
   // 'principale' = eventi nel tuo calendario di sempre (consigliato); 'dedicato' = calendario separato EDITH Scadenze
@@ -213,6 +214,7 @@ function log_(azione, dettaglio) {
     const sh = sheet_(CONFIG.SHEET_LOG);
     if (sh.getLastRow() === 0) sh.appendRow(['QUANDO', 'AZIONE', 'DETTAGLIO']);
     sh.appendRow([new Date(), azione, String(dettaglio).slice(0, 5000)]);
+    if (sh.getLastRow() > 3000) sh.deleteRows(2, 500);   // il registro non cresce all'infinito
   } catch (e) {
     console.log(azione + ': ' + dettaglio);
   }
@@ -237,6 +239,22 @@ function toast_(messaggio) {
   try { ss_().toast(messaggio, 'EDITH', 5); } catch (e) { console.log(messaggio); }
 }
 
+/** Errore dovuto ai limiti giornalieri di Google (meglio fermarsi e riprovare al giro dopo). */
+function eLimiteGoogle_(e) {
+  return /too many times|quota|limit exceeded|rate limit|troppe volte|limite|service unavailable|try again later/i.test(String(e && e.message || e));
+}
+
+/** Riprova una funzione che può fallire per un disguido temporaneo di Google. */
+function conRiprova_(fn, tentativi) {
+  tentativi = tentativi || 3;
+  for (let i = 1; ; i++) {
+    try { return fn(); } catch (e) {
+      if (i >= tentativi || !/unavailable|internal error|backend error|timed out|timeout|server error|try again|errore interno|empty response/i.test(String(e.message))) throw e;
+      Utilities.sleep(1000 * i * i);
+    }
+  }
+}
+
 function tempoScaduto_(start) {
   return Date.now() - start > CONFIG.TEMPO_MAX_MS;
 }
@@ -251,14 +269,15 @@ function ocrPdf_(blob) {
   const nome = 'EDITH_OCR_tmp_' + Date.now();
   let file, pdfTemp;
   try {
-    file = Drive.Files.create({ name: nome, mimeType: MimeType.GOOGLE_DOCS }, blob, { ocrLanguage: 'it', fields: 'id' });
+    file = conRiprova_(() => Drive.Files.create({ name: nome, mimeType: MimeType.GOOGLE_DOCS }, blob, { ocrLanguage: 'it', fields: 'id' }));
   } catch (e) {
+    if (eLimiteGoogle_(e)) throw e;
     // Ripiego: alcuni PDF non si convertono al caricamento ma si convertono con una copia
     pdfTemp = Drive.Files.create({ name: nome + '.pdf' }, blob.setContentType('application/pdf'), { fields: 'id' });
     file = Drive.Files.copy({ name: nome, mimeType: MimeType.GOOGLE_DOCS }, pdfTemp.id, { ocrLanguage: 'it', fields: 'id' });
   }
   try {
-    return DocumentApp.openById(file.id).getBody().getText();
+    return conRiprova_(() => DocumentApp.openById(file.id).getBody().getText());
   } finally {
     [file, pdfTemp].forEach(f => {
       if (!f) return;
@@ -401,13 +420,13 @@ function estraiDati_(text, tipoPratica, mittente, oggetto) {
   ], 60);
 
   const scadenza = dataDopo_(t, isAss
-    ? ['scadenza rata', 'data scadenza', 'scadenza', 'pagare entro il', 'entro il', 'scade il', 'data effetto', 'decorrenza']
-    : ['data scadenza', 'scadenza', 'da pagare entro il', 'pagare entro', 'entro il', 'scade il'], 100,
+    ? ['scadenza rata', 'data scadenza', 'scadenza', 'pagare entro il', 'entro il', 'scade il', 'data effetto', 'decorrenza', 'addebit\\w* (?:il|in data)']
+    : ['data scadenza', 'scadenza', 'da pagare entro il', 'pagare entro', 'entro il', 'scade il', 'addebit\\w* (?:il|in data|a partire dal)', 'data (?:di )?addebito', 'pagamento entro'], 100,
     d => !emissione || d >= emissione);
 
   const importo = importoDopo_(t, isAss
     ? ['premio totale', 'premio lordo', 'totale da pagare', 'importo da pagare', 'importo rata', 'premio rata', 'totale', 'premio', 'importo']
-    : ['totale da pagare', 'importo da pagare', 'totale bolletta', 'totale fattura', 'totale documento', 'importo totale', 'da pagare', 'totale', 'importo']);
+    : ['totale da pagare', 'importo da pagare', 'totale bolletta', 'totale fattura', 'totale documento', 'importo totale', 'importo addebitato', 'sar[aà] addebitat[oa]', 'importo da addebitare', 'da pagare', 'totale', 'importo']);
 
   const docMatch = t.match(/(?:fattura|bolletta|documento)\s*(?:n\.?|nr\.?|numero|n°)?\s*[:°]?\s*([A-Z0-9\/\-]*\d[A-Z0-9\/\-]*)/i);
   const polMatch = t.match(/(?:[Pp]olizza|POLIZZA|[Cc]ontratto|CONTRATTO)\s*(?:[Nn]\.?|[Nn]r\.?|[Nn]umero|[Nn]°)?\s*[:°]?\s*(\d[A-Z0-9\/\-]{3,14}|[A-Z]{1,4}\d[A-Z0-9\/\-]{3,14})(?![a-z])/);
@@ -442,8 +461,11 @@ function elaboraTutto() {
     elaboraPratiche_('bollette', start);
     if (!tempoScaduto_(start)) elaboraPratiche_('assicurazioni', start);
     if (!tempoScaduto_(start)) sincronizzaStati();
+    if (!tempoScaduto_(start) && !PropertiesService.getScriptProperties().getProperty('OFFERTE_LETTE')) leggiOfferte(start);
+    if (!tempoScaduto_(start)) riprovaDaVerificare_(start);
     avvisaNuoveDaVerificare_(prima);
     PropertiesService.getScriptProperties().setProperty('ULTIMO_CONTROLLO', String(Date.now()));
+    svuotaCache_();
   } catch (e) {
     log_('Errore elaborazione', e.message);
     notifica_('Errore nel controllo della posta', ['Il controllo automatico della posta si è fermato con questo errore:', e.message,
@@ -503,6 +525,7 @@ function elaboraPratiche_(tipoPratica, start) {
         registrateNelThread = true;
         nuove++;
       } catch (e) {
+        if (eLimiteGoogle_(e)) { log_('Limite Google', 'Raggiunto il limite giornaliero (' + e.message + '): riprendo al prossimo giro.'); return; }
         log_('Errore ' + tipoPratica, msg.getSubject() + ' -> ' + e.message);
       }
     }
@@ -543,6 +566,7 @@ function analizzaMessaggio_(msg, tipoPratica) {
     try {
       const testo = ocrPdf_(pdf.copyBlob());
       const d = estraiDati_(testo, tipoPratica, mittente, msg.getSubject());
+      d.testo = testo;
       if (!migliore || d.confidenza > migliore.confidenza) migliore = d;
     } catch (e) {
       note.push('OCR fallito su ' + pdf.getName() + ' (' + e.message + ')');
@@ -559,6 +583,7 @@ function analizzaMessaggio_(msg, tipoPratica) {
     if (migliore.tipo === 'Altro' && corpo.tipo !== 'Altro') migliore.tipo = corpo.tipo;
   }
   migliore.note = note;
+  migliore.testo = (migliore.testo || '') + '\n' + msg.getPlainBody();
   return migliore;
 }
 
@@ -598,6 +623,10 @@ function registraPratica_(sh, map, msg, thread, d, tipoPratica) {
     Object.assign(obj, { 'FORNITURA': d.tipo, 'FORNITORE': d.fornitore, 'N. DOCUMENTO': d.numero });
   }
   const row = appendObj_(sh, map, obj);
+  if (tipoPratica === 'bollette' && d.testo) {
+    try { salvaOfferta_(estraiOfferta_(d.testo), d.fornitore, d.tipo, emissione, thread.getPermalink()); }
+    catch (e) { log_('Offerte', 'Non riesco a salvare l\'offerta: ' + e.message); }
+  }
 
   // Promemoria solo se c'è una scadenza e la pratica non è vecchia di oltre 30 giorni
   if (d.scadenza && d.scadenza > new Date(Date.now() - 30 * 864e5)) {
@@ -659,6 +688,51 @@ function unisciDuplicato_(sh, map, d, tipoPratica, msg) {
   }
   log_('Duplicato unito', msg.getSubject() + ' -> riga ' + dup._row);
   return true;
+}
+
+/**
+ * Riprova le pratiche "Da verificare": rilegge la mail con le regole aggiornate e, se ora trova
+ * scadenza, importo e tipo, completa la riga da sola. Ogni pratica viene riprovata una volta sola.
+ */
+function riprovaDaVerificare_(start) {
+  start = start || Date.now();
+  let sistemate = 0;
+  [['bollette', CONFIG.SHEET_BOLLETTE], ['assicurazioni', CONFIG.SHEET_ASSICURAZIONI]].forEach(([tipoPratica, nome]) => {
+    const sh = ss_().getSheetByName(nome);
+    if (!sh || sh.getLastRow() < 2) return;
+    const map = colMap_(sh);
+    const colTipo = tipoPratica === 'assicurazioni' ? 'RAMO' : 'FORNITURA';
+    const daRifare = readRows_(sh).rows.filter(r => r['STATO PAGAMENTO'] === STATO.DA_VERIFICARE && r['ID MAIL'] && !/riprovat/.test(String(r['NOTE OCR'] || ''))).slice(0, 3);
+    for (const r of daRifare) {
+      if (tempoScaduto_(start)) return;
+      let nota = 'riprovata il ' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'dd/MM');
+      try {
+        const msg = GmailApp.getMessageById(String(r['ID MAIL']));
+        const d = analizzaMessaggio_(msg, tipoPratica);
+        if (d) {
+          const vuoto = k => r[k] === '' || r[k] === null || r[k] === undefined || r[k] === 'Altro';
+          if (vuoto('DATA SCADENZA') && d.scadenza) setCell_(sh, map, r._row, 'DATA SCADENZA', d.scadenza);
+          if (vuoto('IMPORTO') && d.importo) setCell_(sh, map, r._row, 'IMPORTO', d.importo);
+          if (vuoto(colTipo) && d.tipo !== 'Altro') setCell_(sh, map, r._row, colTipo, d.tipo);
+          const scad = r['DATA SCADENZA'] instanceof Date ? r['DATA SCADENZA'] : d.scadenza;
+          const completa = scad && (typeof r['IMPORTO'] === 'number' || d.importo) && (!vuoto(colTipo) || d.tipo !== 'Altro');
+          if (completa) {
+            setCell_(sh, map, r._row, 'STATO PAGAMENTO', scad < oggi_() ? STATO.SCADUTA : STATO.DA_PAGARE);
+            nota += ': completata da sola';
+            sistemate++;
+            if (!r['TASK ID'] && scad > new Date(Date.now() - 30 * 864e5)) { try { creaPromemoria_(sh, map, r._row, tipoPratica); } catch (e) { } }
+          } else nota += ': ancora incompleta, controllala a mano';
+          if (tipoPratica === 'bollette' && d.testo) { try { salvaOfferta_(estraiOfferta_(d.testo), r['FORNITORE'], r['FORNITURA'] || d.tipo, r['DATA EMISSIONE'], r['LINK MAIL']); } catch (e) { } }
+        }
+      } catch (e) {
+        if (eLimiteGoogle_(e)) return;
+        nota += ': ' + e.message;
+      }
+      setCell_(sh, map, r._row, 'NOTE OCR', String(r['NOTE OCR'] || '') + ' · ' + nota);
+    }
+  });
+  if (sistemate) { log_('Da verificare', sistemate + ' pratiche completate da sola'); try { aggiornaDashboard(); } catch (e) { } }
+  return sistemate;
 }
 
 /**
@@ -1586,13 +1660,26 @@ function pratiche_() {
 
 function quota_() {
   try {
+    const cache = CacheService.getScriptCache(), c = cache.get('quota');
+    if (c) return JSON.parse(c);
     const q = Drive.About.get({ fields: 'storageQuota' }).storageQuota;
     const gb = b => round2_(Number(b || 0) / 1073741824);
-    return { usato: gb(q.usage), limite: gb(q.limit), drive: gb(q.usageInDrive), altro: gb(Number(q.usage) - Number(q.usageInDrive || 0)) };
+    const out = { usato: gb(q.usage), limite: gb(q.limit), drive: gb(q.usageInDrive), altro: gb(Number(q.usage) - Number(q.usageInDrive || 0)) };
+    cache.put('quota', JSON.stringify(out), 3600);
+    return out;
   } catch (e) { return null; }
 }
 
+/** I dati dell'app restano pronti per 5 minuti: l'app si apre subito. Si azzerano quando qualcosa cambia. */
 function apiDati() {
+  try { const c = CacheService.getScriptCache().get('apiDati'); if (c) return JSON.parse(c); } catch (e) { }
+  const d = calcolaDati_();
+  try { const s = JSON.stringify(d); if (s.length < 95000) CacheService.getScriptCache().put('apiDati', s, 300); } catch (e) { }
+  return d;
+}
+function svuotaCache_() { try { CacheService.getScriptCache().remove('apiDati'); } catch (e) { } }
+
+function calcolaDati_() {
   const anno = new Date().getFullYear();
   const P = pratiche_();
   const conImp = P.filter(p => p.importo !== null);
@@ -1622,6 +1709,7 @@ function apiDati() {
     perRamo: uniq_(A.map(p => p.tipo)).map(t => ({ nome: t, totale: somma(A.filter(p => p.tipo === t)) })),
     aperte, pratiche: P.slice(0, 60), spazio: quota_(),
     anomalie: (function () { try { return anomalie_(P); } catch (e) { return []; } })(),
+    offerte: offerte_(),
   };
 }
 
@@ -1630,6 +1718,7 @@ function apiDati() {
 function apiElabora() {
   const prima = sheet_(CONFIG.SHEET_LOG).getLastRow();
   elaboraTutto();
+  svuotaCache_();
   const log = sheet_(CONFIG.SHEET_LOG);
   const dopo = log.getLastRow();
   const righe = dopo > prima ? log.getRange(prima + 1, 2, dopo - prima, 2).getValues().map(r => r[0] + ': ' + r[1]) : [];
@@ -1637,6 +1726,7 @@ function apiElabora() {
 }
 
 function apiSegnaPagata(foglio, riga) {
+  svuotaCache_();
   const sh = ss_().getSheetByName(foglio);
   if (!sh || [CONFIG.SHEET_BOLLETTE, CONFIG.SHEET_ASSICURAZIONI].indexOf(foglio) === -1) throw new Error('Foglio non valido');
   const map = colMap_(sh);
@@ -1719,7 +1809,7 @@ function apiChiedi(domanda, storia) {
   storia = Array.isArray(storia) ? storia : [];
   try {
     const P = pratiche_();
-    if (/^\s*ripeti|^\s*come hai detto|^\s*cosa hai detto|^\s*non ho sentito/i.test(normalizza_(q))) {
+    if (/^\s*(ripeti|ripetimelo|puoi ripetere|come hai detto|cosa hai detto|non ho sentito|non ho capito|scusa non ho capito|come scusa|eh come|cosa hai detto)\b/i.test(normalizza_(q))) {
       const ult = storia.filter(m => m.ruolo !== 'io').pop();
       return { testo: ult ? String(ult.testo) : 'Non ti ho ancora detto niente!', fonte: 'locale' };
     }
@@ -1826,6 +1916,26 @@ function chiarisci_(t, P) {
   return { testo: nonCapito_() };
 }
 
+/** Per ogni fornitore con almeno 2 bollette: ogni quanti giorni arrivano e quando arriva la prossima. */
+function previsioniBollette_(P) {
+  const per = {};
+  P.filter(p => p.area === 'bollette' && p.emissione).forEach(p => { const k = p.chi + '|' + p.tipo; (per[k] = per[k] || []).push(p); });
+  const oggi = iso_(new Date()), out = [];
+  Object.keys(per).forEach(k => {
+    const d = per[k].map(p => p.emissione).sort();
+    if (d.length < 2) return;
+    const gg = (a, b) => (new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 864e5;
+    let tot = 0; for (let i = 1; i < d.length; i++) tot += gg(d[i - 1], d[i]);
+    const ogni = Math.round(tot / (d.length - 1));
+    if (ogni < 20 || ogni > 400) return;
+    const att = new Date(new Date(d[d.length - 1] + 'T12:00:00').getTime() + ogni * 864e5);
+    const attesa = iso_(att);
+    if (gg(attesa, oggi) > ogni) return;   // fornitore probabilmente cambiato
+    out.push({ chi: per[k][0].chi, tipo: per[k][0].tipo, ogni: ogni, attesa: attesa });
+  });
+  return out.sort((a, b) => a.attesa.localeCompare(b.attesa));
+}
+
 function aMese_(i) { return (/^[aeiou]/.test(NOMI_MESI[i]) ? 'ad ' : 'a ') + NOMI_MESI[i]; }
 function cap_(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
@@ -1862,7 +1972,7 @@ function aiuto_() {
     '"ho pagato l\'AXA", "quanto spazio ho?", "controlla la posta".';
 }
 
-function eur_(n) { return (n === null || n === undefined) ? 'importo non indicato' : '€ ' + Number(n).toFixed(2).replace('.', ','); }
+function eur_(n) { return (n === null || n === undefined) ? 'importo non indicato' : '€ ' + Number(n).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+,)/g, '.'); }
 function data_(s) { return s ? s.slice(8, 10) + '/' + s.slice(5, 7) + '/' + s.slice(0, 4) : 'senza data'; }
 function descr_(p) {
   return p.tipo + (p.chi ? ' ' + p.chi : '') + ', ' + eur_(p.importo) + (p.scadenza ? ', scadenza ' + data_(p.scadenza) : '') + (p.stato === STATO.SCADUTA ? ' (scaduta)' : '');
@@ -1887,15 +1997,20 @@ function capisci_(t, P) {
   let tt = t;
   if (chi) normalizza_(chi).split(' ').forEach(w => { tt = tt.replace(new RegExp('\\b' + w + '\\b', 'g'), ' '); });
   const tipo = (SINONIMI_TIPO.find(([, re]) => re.test(tt)) || [])[0] || null;
-  const ass = /assicura\w*|polizz\w*|\brat[ae]\b|\brca\b|\bauto\b|\bmoto\b/.test(tt);
-  return { anno, mesi: idx, tipo, ass, chi };
+  const ramo = /\b(auto|macchina|moto|rca|veicol\w*)\b/.test(tt) ? 'auto' : /\b(salute|infortun\w*|medic\w*|sanitari\w*)\b/.test(tt) ? 'salute'
+    : /\b(casa|abitazione|incendio)\b/.test(tt) && /assicur|polizz/.test(tt) ? 'casa' : /\bvita\b/.test(tt) ? 'vita' : null;
+  const ass = /assicura\w*|polizz\w*|\brat[ae]\b/.test(tt) || !!ramo || (!!chi && P.some(p => p.chi === chi && p.area === 'assicurazioni'));
+  // tipi citati, nell'ordine (per "spendo più di luce o di gas?")
+  const tipi = SINONIMI_TIPO.filter(([, re]) => re.test(tt)).map(x => x[0]);
+  return { anno, mesi: idx, tipo, tipi, ass, ramo, chi };
 }
 
 function filtra_(P, c, opz) {
   opz = opz || {};
   return P.filter(p =>
     (!c.ass || p.area === 'assicurazioni') && (c.ass || !opz.soloBollette || p.area === 'bollette') &&
-    (!c.tipo || p.tipo.indexOf(c.tipo) !== -1) && (!c.chi || p.chi === c.chi));
+    (!c.tipo || p.tipo.indexOf(c.tipo) !== -1) && (!c.chi || p.chi === c.chi) &&
+    (!c.ramo || p.area !== 'assicurazioni' || p.tipo.toLowerCase().indexOf(c.ramo) !== -1));
 }
 
 function rispostaLocale_(q, P) {
@@ -1904,7 +2019,7 @@ function rispostaLocale_(q, P) {
   const somma = arr => arr.reduce((s, p) => s + (p.importo || 0), 0);
   const aperte = P.filter(p => p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA)
     .sort((a, b) => (a.scadenza || '9999').localeCompare(b.scadenza || '9999'));
-  const etichetta = c.ass ? 'di assicurazioni' : c.tipo ? 'di ' + c.tipo.toLowerCase() : c.chi ? 'con ' + c.chi : 'di bollette';
+  const etichetta = c.chi ? 'con ' + c.chi : c.ramo ? 'di assicurazione ' + c.ramo : c.ass ? 'di assicurazioni' : c.tipo ? 'di ' + c.tipo.toLowerCase() : c.chi ? 'con ' + c.chi : 'di bollette';
 
   // conversazione: risposte brevi, niente riepiloghi non richiesti
   const ora = new Date().getHours();
@@ -1924,6 +2039,7 @@ function rispostaLocale_(q, P) {
   if (corta && /^(ciao|buongiorno|buonasera|buon pomeriggio|salve|hey|ehi|eccomi|ehila)\b/.test(t)) {
     return { testo: aCaso_([saluto + '! Dimmi pure.', 'Ciao Teo! Come posso aiutarti?', 'Eccomi. Cosa ti serve?']) };
   }
+  if (/^(zitta|stai zitta|taci|silenzio|shh+|sst+|zitto|non parlare)\b/.test(t)) return { testo: 'Ok.', fine: true };
   if (/^(basta|stop|fermati|a dopo|ci sentiamo|ciao ciao|arrivederci|buonanotte|alla prossima|chiudi|smetti)\b/.test(t)) {
     return { testo: aCaso_(['A dopo, Teo.', 'Va bene, sono qui quando ti serve.', 'Ok, ci sentiamo.']), fine: true };
   }
@@ -1970,27 +2086,71 @@ function rispostaLocale_(q, P) {
     return { testo: 'Finora nel ' + anno + ' hai speso ' + eur_(fatto) + ' ' + etichetta + ', in media ' + eur_(media) + ' al mese. Di questo passo arrivi a circa ' + eur_(fatto + resto) + ' a fine anno' +
       (A.length && !c.tipo ? ', più ' + eur_(somma(A)) + ' di rate di assicurazione ancora previste' : '') + '.' };
   }
+  // skill: l'offerta in corso (letta dalle bollette)
+  if (/offert\w*|tariff\w*|contratt\w*|\bkwh\b|\bsmc\b|al chilowatt|condizioni economiche|\bpod\b|\bpdr\b|quota fissa|potenza (impegnata|del contatore)|prezzo (fisso|variabile|della luce|del gas|dell energia)|che prezzo|mercato libero|tutela/.test(t)) {
+    const O = offerte_().filter(o => (!c.tipo || o.tipo.indexOf(c.tipo) !== -1 || (c.tipo === 'Luce' && o.prezzoLuce) || (c.tipo === 'Gas' && o.prezzoGas)) && (!c.chi || o.chi === c.chi));
+    if (!O.length) return { testo: 'I dettagli dell\'offerta ' + (c.chi || c.tipo ? 'per ' + (c.chi || c.tipo.toLowerCase()) + ' ' : '') + 'non li ho ancora: li leggo dalle bollette, e al prossimo controllo della posta rileggo le ultime arrivate. Se la bolletta non riporta il riquadro dell\'offerta, lo trovi nell\'area clienti del fornitore.' };
+    if (/\bpod\b|\bpdr\b|codice/.test(t)) {
+      const cod = O.map(o => [o.pod && 'POD ' + o.pod.split('').join(' '), o.pdr && 'PDR ' + o.pdr.split('').join(' ')].filter(Boolean).join(', ') + ' (' + o.chi + ')').filter(x => !/^ \(/.test(x));
+      return { testo: cod.length ? 'Ecco i codici: ' + cod.join('; ') + '. Li vedi anche in Home, nel riquadro delle offerte.' : 'POD e PDR non sono scritti nelle bollette che ho letto.' };
+    }
+    if (/scad|fino a quando|quando finisce|dura/.test(t)) {
+      const con = O.filter(o => o.scadenza);
+      return { testo: con.length ? con.map(o => 'Le condizioni di ' + o.chi + (o.offerta ? ' "' + o.offerta + '"' : '') + ' scadono il ' + data_(o.scadenza)).join('; ') + '.' : 'Nelle bollette non trovo la data di scadenza delle condizioni economiche.' };
+    }
+    return { testo: O.map(o => cap_(descriviOfferta_(o))).join(' ') + (O.some(o => o.da) ? ' Dati presi dall\'ultima bolletta.' : ''),
+      seguito: 'consigli per risparmiare', proposta: 'Vuoi qualche idea per pagare meno?' };
+  }
   // skill: consigli per risparmiare (basati sui tuoi dati)
-  if (/consigli\w*|risparmi\w*|spendere meno|come (posso )?ridurre|tagliare/.test(t)) {
+  if (/consigli\w*|risparmi(?!at)\w*|spendere meno|come (posso )?ridurre|tagliare/.test(t)) {
     const anno = String(new Date().getFullYear());
     const B = P.filter(p => p.importo !== null && p.area === 'bollette' && p.rif.slice(0, 4) === anno);
     const per = {}; B.forEach(p => { per[p.tipo] = (per[p.tipo] || 0) + p.importo; });
     const top = Object.keys(per).sort((a, b) => per[b] - per[a])[0];
     const caro = anomalie_(P).find(x => /sopra la tua media/.test(x.testo));
+    const idee = [];
+    offerte_().forEach(o => {
+      const g = o.scadenza ? Math.round((new Date(o.scadenza + 'T12:00:00') - new Date()) / 864e5) : null;
+      if (g !== null && g <= 90 && g > -120) idee.push('le condizioni di ' + o.chi + (g >= 0 ? ' scadono tra ' + g + ' giorni' : ' sono già scadute') + ', quindi conviene confrontare adesso');
+      if (/variabile/i.test(o.tipoPrezzo)) idee.push('con ' + o.chi + ' hai un prezzo variabile: se i prezzi salgono, un fisso ti protegge');
+      if (o.quotaFissa && o.quotaFissa > 12) idee.push('la quota fissa di ' + o.chi + ' (' + eur_(o.quotaFissa) + ' al mese) è alta: molte offerte stanno sotto i 10 euro');
+      if (o.mercato === 'Tutela' || o.mercato === 'Tutele graduali') idee.push('sei nel servizio ' + o.mercato.toLowerCase() + ': il mercato libero a volte costa meno, ma confronta bene');
+    });
     return { testo: (top ? 'La voce che pesa di più è ' + top.toLowerCase() + ': ' + eur_(per[top]) + ' quest\'anno. ' : '') + (caro ? caro.testo + ' ' : '') +
+      (idee.length ? 'Dalla tua offerta: ' + idee.slice(0, 2).join('; ') + '. ' : '') +
       'Due idee: confronta l\'offerta del fornitore su ilportaleofferte.it, il sito ufficiale e gratuito dell\'autorità per l\'energia, e controlla che le letture del contatore siano reali e non stimate.' };
   }
   // chiacchiere
   if (/che tempo fa|meteo|piove/.test(t)) return { testo: 'Il meteo non lo vedo: lavoro solo sui tuoi conti e sulla posta. Ma se piove, almeno le bollette sono in ordine.' };
   if (/barzelletta|fammi ridere|battuta/.test(t)) return { testo: aCaso_(['Sai qual è la bolletta più leggera? Quella già pagata.', 'Mi chiedono spesso se ho dei sentimenti. Rispondo che ho delle scadenze, che è quasi lo stesso.', 'Ho provato a fare una dieta, ma la bolletta del gas continua a ingrassare in inverno.']) };
+  if (/sono (stanc|triste|stressat|nervos|preoccupat|giu\b|a pezzi|distrutt)|giornata (pesante|storta|no\b)|che stress|non ce la faccio/.test(t)) {
+    return { testo: aCaso_(['Mi dispiace, Teo. Ai conti ci penso io: tu prenditi un momento per te.', 'Giornata lunga, eh? Riposati, qui è tutto sotto controllo.']) +
+      (aperte.length ? '' : ' E almeno di pagamenti in sospeso non ce ne sono.') };
+  }
   if (/ti voglio bene|sei la migliore|ti amo/.test(t)) return { testo: 'Che dolce. Anche io tengo molto ai tuoi conti.' };
   if (/sei (stupida|scema|lenta|rincoglionita)|non capisci/.test(t)) return { testo: 'Hai ragione, a volte mi perdo. Prova a chiedermelo con altre parole: imparo dalle domande che mi fai.' };
   if (/^(buongiorno|buonasera|buonanotte) edith|^edith$/.test(t)) return { testo: aCaso_([saluto + '! Dimmi pure.', 'Eccomi.']) };
 
+  if (/ricordami|mi ricordi|promemoria|avvisami/.test(t)) {
+    const lista = filtra_(aperte, c);
+    return { testo: 'I promemoria li creo da sola: due giorni prima di ogni scadenza trovi un\'attività in Google Tasks. ' +
+      (lista.length ? 'Il prossimo sarà per ' + descr_(lista[0]) + '.' : 'Adesso ' + (c.tipo || c.chi ? 'per ' + (c.chi || c.tipo.toLowerCase()) + ' ' : '') + 'non c\'è niente da pagare.') };
+  }
+  if (/pulisci|pulizia|liberare|libera spazio|mail pesanti|posta pesante|quanta posta|troppe mail|cancella|svuota|elimina/.test(t)) {
+    const s = quota_();
+    return { testo: (s ? 'Stai usando ' + s.usato + ' GB su ' + s.limite + ' GB. ' : '') + 'Nella sezione Posta trovi la pulizia guidata: newsletter e promozioni vecchie, e le mail più pesanti da scegliere una per una. ' +
+      'Non cancello niente da sola: quello che scegli va nel Cestino, e da lì lo elimini tu.' };
+  }
   // azioni
-  if (/\b(controlla|elabora|aggiorna|scarica|leggi)\b.*\b(posta|mail|bollette|email)\b|nuove bollette|ci sono novita/.test(t)) {
+  if (/\b(controlla|elabora|aggiorna|scarica|leggi)\b.*\b(posta|mail|bollette|email)\b|nuove bollette|ci sono novita|^(aggiorna|controlla|sincronizza)$/.test(t)) {
+    const prima = {}; P.forEach(p => { prima[p.foglio + '|' + p.riga] = 1; });
     const r = apiElabora();
-    return { testo: r.log.length ? 'Fatto. ' + r.log.join('. ') + '.' : 'Ho controllato la posta: niente di nuovo.', aggiorna: true };
+    const nuove = pratiche_().filter(p => !prima[p.foglio + '|' + p.riga]);
+    const errori = r.log.filter(x => /errore/i.test(x)).length;
+    const daVer = nuove.filter(p => p.stato === STATO.DA_VERIFICARE).length;
+    return { testo: (nuove.length ? 'Ho controllato la posta: ' + (nuove.length === 1 ? 'un documento nuovo, ' : nuove.length + ' documenti nuovi: ') + nuove.slice(0, 3).map(descr_).join('; ') + '.' +
+      (daVer ? ' ' + (daVer === 1 ? 'Uno va verificato' : daVer + ' vanno verificati') + ' a mano nello Sheet.' : '') : 'Ho controllato la posta: niente di nuovo.') +
+      (errori ? ' Qualcosa però non è andato: trovi i dettagli nel foglio LOG.' : ''), aggiorna: true };
   }
   if (/\b(ho pagato|segna\w*|pagat[ao])\b/.test(t) && !/quanto|quando|quali|cosa/.test(t)) {
     const cand = filtra_(aperte, c);
@@ -2009,7 +2169,7 @@ function rispostaLocale_(q, P) {
     const n = righeFoglio_(CONFIG.SHEET_ISCRIZIONI).length;
     return { testo: n ? 'Ho trovato ' + n + ' mittenti di newsletter. Nella sezione Posta scegli quali disiscrivere.' : 'Non ho ancora analizzato le iscrizioni: in Posta tocca "Analizza".' };
   }
-  if (/riepilogo|situazione|resoconto|come (sto|siamo|va)|panoramica/.test(t)) {
+  if (/riepilogo|riassunto|riassumi|situazione|resoconto|come (sto|siamo|va)|panoramica/.test(t)) {
     const anno = String(new Date().getFullYear());
     const B = P.filter(p => p.area === 'bollette' && p.rif.slice(0, 4) === anno);
     const A = P.filter(p => p.area === 'assicurazioni' && p.rif.slice(0, 4) === anno);
@@ -2017,6 +2177,14 @@ function rispostaLocale_(q, P) {
       (aperte.length ? 'Da pagare: ' + aperte.map(descr_).join('; ') + '.' : 'Non hai nulla da pagare.') };
   }
 
+  if (/quando (ho|l ho) pagat|pagata quando|data (del )?pagamento/.test(t)) {
+    const fatte = filtra_(P.filter(p => p.pagata), c).sort((a, b) => b.pagata.localeCompare(a.pagata));
+    if (!fatte.length) return { testo: 'Non ho date di pagamento ' + (c.chi || c.tipo ? etichetta : '') + ' segnate. Le registro quando mi dici "ho pagato…" o la spunti nell\'app.' };
+    return { testo: cap_(fatte[0].tipo + ' ' + fatte[0].chi) + ' risulta pagata il ' + data_(fatte[0].pagata) + ' (' + eur_(fatte[0].importo) + ').' };
+  }
+  if (/risparmiat\w*/.test(t)) {
+    return { testo: 'Quanto hai risparmiato non lo so dire, perché non vedo cosa pagavi prima. Posso però dirti se una bolletta è aumentata o diminuita rispetto alla precedente.', seguito: 'confronta l ultima bolletta', proposta: 'Te lo dico per l\'ultima?' };
+  }
   // quanto manca a una scadenza
   if (/quanto manca|quanti giorni|fra quanto|tra quanto/.test(t)) {
     const lista = filtra_(aperte, c).filter(p => p.scadenza);
@@ -2029,12 +2197,25 @@ function rispostaLocale_(q, P) {
 
   // scadenze
   if (/quando scade|quando (devo|va) pagat|quando (pago|devo pagare)|prossima scadenza|prossima rata|prossima bolletta|prossimo pagamento|scadenz\w*|scade/.test(t) && !/quanto (ho|hai) (speso|pagato)/.test(t)) {
-    if (/prossima bolletta/.test(t) && !filtra_(aperte, c).length) {
-      const b = P.filter(p => p.area === 'bollette' && p.emissione).slice(0, 4);
-      const ult = c.tipo || c.chi ? filtra_(b, c)[0] : b[0];
-      if (ult) return { testo: 'Non hai bollette da pagare adesso. L\'ultima è arrivata il ' + data_(ult.emissione) + ' (' + ult.tipo + ' ' + ult.chi + '): di solito ne arriva una ogni uno o due mesi.' };
+    if (/prossima bolletta|quando arriva|arrivera/.test(t) && !c.ass) {
+      const daPagare = filtra_(aperte, c, { soloBollette: true }).filter(p => p.area === 'bollette');
+      if (daPagare.length) return { testo: 'Da pagare c\'è già: ' + daPagare.map(descr_).join('; ') + '.' };
+      const prev = previsioniBollette_(filtra_(P, c, { soloBollette: true }));
+      if (c.tipo) prev.sort((a, b) => (a.tipo === c.tipo ? 0 : 1) - (b.tipo === c.tipo ? 0 : 1));
+      if (prev.length) {
+        const x = prev[0], g = Math.round((new Date(x.attesa + 'T12:00:00') - new Date(iso_(new Date()) + 'T12:00:00')) / 864e5);
+        return { testo: 'Bollette da pagare adesso non ne hai. La prossima dovrebbe essere ' + x.tipo + ' ' + x.chi + ', che arriva circa ogni ' + x.ogni + ' giorni: ' +
+          (g < -5 ? 'era attesa verso il ' + data_(x.attesa) + ', quindi dovrebbe arrivare a giorni.' : g <= 5 ? 'dovrebbe arrivare in questi giorni.' : 'me la aspetto verso il ' + data_(x.attesa) + '.') };
+      }
+      return { testo: 'Bollette da pagare adesso non ne hai, e ne ho ancora troppo poche per capire ogni quanto arrivano.' };
     }
-    const lista = filtra_(aperte, c);
+    let lista = filtra_(aperte, c);
+    if (c.mesi.length) {
+      const m = c.mesi[0];
+      const nelMese = lista.filter(p => p.scadenza && +p.scadenza.slice(5, 7) === m + 1);
+      if (!nelMese.length) return { testo: cap_(aMese_(m)) + ' non scade niente' + (c.tipo || c.chi || c.ass ? ' ' + etichetta : '') + '.' + (lista.length ? ' La prossima scadenza è ' + descr_(lista[0]) + '.' : '') };
+      lista = nelMese;
+    }
     if (lista.length) return { testo: (lista.length === 1 ? 'Scade: ' : 'Prossime scadenze: ') + lista.slice(0, 5).map(descr_).join('; ') + '.' };
     if (c.ass) {
       const prev = P.filter(p => p.area === 'assicurazioni' && p.prossima && p.prossima >= iso_(new Date())).sort((a, b) => a.prossima.localeCompare(b.prossima));
@@ -2043,8 +2224,12 @@ function rispostaLocale_(q, P) {
     return { testo: 'Non ci sono scadenze aperte' + (c.tipo || c.chi || c.ass ? ' per ' + (c.chi || c.tipo || 'le assicurazioni') : '') + '.' };
   }
   if (/devo pagare|da pagare|in sospeso|pagamenti|cosa (devo|c e da)/.test(t)) {
-    const lista = filtra_(aperte, c);
-    if (!lista.length) return { testo: 'Non hai nulla da pagare in questo momento.' };
+    const soloB = /bollett/.test(t) && !c.ass;
+    const lista = filtra_(aperte, c).filter(p => !soloB || p.area === 'bollette');
+    if (!lista.length) {
+      const altro = soloB ? aperte : [];
+      return { testo: (soloB ? 'Nessuna bolletta da pagare.' : 'Non hai nulla da pagare in questo momento.') + (altro.length ? ' C\'è però ' + descr_(altro[0]) + '.' : '') };
+    }
     const tot = somma(lista);
     return { testo: 'Da pagare: ' + lista.slice(0, 6).map(descr_).join('; ') + '.' + (lista.length > 6 ? ' E altre ' + (lista.length - 6) + '.' : '') +
       (lista.length > 1 ? ' In tutto ' + eur_(tot) + '.' : ''),
@@ -2063,6 +2248,14 @@ function rispostaLocale_(q, P) {
 
   // confronti
   const base = filtra_(P.filter(p => p.importo !== null), c, { soloBollette: true });
+  if (c.tipi.length >= 2 && /piu|meno|o di|oppure|confront|rispetto/.test(t)) {
+    const del = P.filter(p => p.importo !== null && p.area === 'bollette' && p.rif.slice(0, 4) === c.anno);
+    const per = {}; del.forEach(p => { per[p.tipo] = (per[p.tipo] || 0) + p.importo; });
+    const voci = Object.keys(per).sort((a, b) => per[b] - per[a]);
+    if (!voci.length) return { testo: 'Non ho bollette nel ' + c.anno + ' da confrontare.' };
+    return { testo: 'Nel ' + c.anno + ': ' + voci.map(v => v.toLowerCase() + ' ' + eur_(per[v])).join(', ') + '. La voce più pesante è ' + voci[0].toLowerCase() + '.' +
+      (voci.some(v => / e /.test(v)) ? ' Le bollette luce e gas arrivano insieme, quindi non posso dividerle.' : '') };
+  }
   if (c.mesi.length >= 2 || /confront\w*|rispetto|aumentat\w*|diminuit\w*|cresciut\w*|calat\w*|differenza|di piu|di meno/.test(t)) {
     if (c.mesi.length >= 2) {
       const [m1, m2] = c.mesi;
@@ -2099,11 +2292,18 @@ function rispostaLocale_(q, P) {
   if (/media|al mese|mensil\w*|ogni mese/.test(t)) {
     const del = base.filter(p => p.rif.slice(0, 4) === c.anno);
     const mesi = c.anno === String(new Date().getFullYear()) ? new Date().getMonth() + 1 : 12;
-    return { testo: 'Media mensile ' + etichetta + ' nel ' + c.anno + ': ' + eur_(somma(del) / mesi) + ' (' + eur_(somma(del)) + ' in ' + mesi + ' mesi).' };
+    const mistoM = c.tipo && del.some(p => p.tipo !== c.tipo);
+    return { testo: 'Media mensile ' + etichetta + ' nel ' + c.anno + ': ' + eur_(somma(del) / mesi) + ' (' + eur_(somma(del)) + ' in ' + mesi + ' mesi' + (mistoM ? ', comprese le bollette luce e gas insieme' : '') + ').' };
   }
 
+  if (c.ass && /quali|che assicurazioni|elenco|ho assicurat/.test(t) && !c.chi && !c.ramo) {
+    const viste = {}, pol = [];
+    P.filter(p => p.area === 'assicurazioni').forEach(p => { const k = p.tipo + '|' + p.chi; if (!viste[k]) { viste[k] = 1; pol.push(p); } });
+    return { testo: 'Hai ' + pol.length + (pol.length === 1 ? ' assicurazione: ' : ' assicurazioni: ') + pol.map(p => p.tipo + ' ' + p.chi + ', ' + eur_(p.importo) +
+      (p.stato === STATO.DA_PAGARE || p.stato === STATO.SCADUTA ? ', da pagare entro il ' + data_(p.scadenza) : p.prossima ? ', prossima rata verso il ' + data_(p.prossima) : '')).join('; ') + '.' };
+  }
   if (c.ass && !/quanto|spes|costo|totale/.test(t)) {
-    const A = P.filter(p => p.area === 'assicurazioni');
+    const A = filtra_(P.filter(p => p.area === 'assicurazioni'), c);
     const anno0 = A.filter(p => p.rif.slice(0, 4) === c.anno);
     const prossime = A.filter(p => p.prossima && p.prossima >= iso_(new Date())).sort((a, b) => a.prossima.localeCompare(b.prossima));
     return { testo: 'Assicurazioni ' + c.anno + ': ' + eur_(somma(anno0)) + ' in ' + anno0.length + (anno0.length === 1 ? ' pratica' : ' pratiche') +
@@ -2117,8 +2317,18 @@ function rispostaLocale_(q, P) {
     const quando = (c.mesi.length ? aMese_(c.mesi[0]) + ' ' : 'nel ') + c.anno;
     const misto = c.tipo && del.some(p => p.tipo !== c.tipo);
     if (!del.length) return { testo: cap_(quando) + ' non ho documenti ' + (tutto ? '' : etichetta) + '.' };
-    const out = { testo: 'Hai speso ' + eur_(somma(del)) + ' ' + (tutto ? 'in totale' : etichetta) + ' ' + quando + ' (' + del.length + (del.length === 1 ? ' documento' : ' documenti') +
-      (misto ? ', comprese le bollette luce e gas insieme' : '') + ').' };
+    const doc = n => n + (n === 1 ? ' documento' : ' documenti');
+    let testo;
+    if (tutto) {
+      const sb = somma(del.filter(p => p.area === 'bollette')), sa = somma(del.filter(p => p.area === 'assicurazioni'));
+      testo = 'Hai speso ' + eur_(somma(del)) + ' in totale ' + quando + ': ' + eur_(sb) + ' di bollette e ' + eur_(sa) + ' di assicurazioni.';
+    } else if (misto) {
+      const puri = del.filter(p => p.tipo === c.tipo), insieme = del.filter(p => p.tipo !== c.tipo);
+      testo = puri.length
+        ? 'Hai speso ' + eur_(somma(puri)) + ' di solo ' + c.tipo.toLowerCase() + ' ' + quando + ' (' + doc(puri.length) + '), più ' + eur_(somma(insieme)) + ' di bollette ' + insieme[0].tipo.toLowerCase() + ' insieme: in tutto ' + eur_(somma(del)) + '.'
+        : 'Bollette di sola ' + c.tipo.toLowerCase() + ' non ne hai: ' + quando + ' ti arriva insieme in ' + insieme[0].tipo.toLowerCase() + ', ' + eur_(somma(insieme)) + ' (' + doc(insieme.length) + ').';
+    } else testo = 'Hai speso ' + eur_(somma(del)) + ' ' + etichetta + ' ' + quando + ' (' + doc(del.length) + ').';
+    const out = { testo: testo };
     const chiave = c.chi ? c.chi : c.tipo ? c.tipo.toLowerCase() : c.ass ? 'assicurazioni' : 'bollette';
     if (c.mesi.length && c.mesi[0] > 0) {
       out.seguito = 'confronta ' + NOMI_MESI[c.mesi[0] - 1] + ' e ' + NOMI_MESI[c.mesi[0]] + ' ' + chiave;
@@ -2299,7 +2509,13 @@ function anomalie_(P) {
   if (ver.length) out.push({ livello: 'basso', testo: (ver.length === 1 ? 'Una pratica non è stata letta del tutto' : ver.length + ' pratiche non sono state lette del tutto') + ': ' + ver.slice(0, 3).map(p => p.oggetto || nome(p)).join('; ') + '.' });
 
   // 6. doppioni tolti dal conteggio
-  if (DOPPIONI_ > 0) out.push({ livello: 'basso', testo: 'Nello Sheet ci sono ' + DOPPIONI_ + (DOPPIONI_ === 1 ? ' riga doppia' : ' righe doppie') + ' (per esempio mail inoltrate con "Fwd:"). Non le conto due volte, ma puoi cancellarle.' });
+  // offerte: condizioni economiche in scadenza (dopo, di solito, il prezzo cambia)
+  offerte_().filter(o => o.scadenza).forEach(o => {
+    const g = -giorniDa(o.scadenza);
+    if (g < 0 && g > -120) out.push({ livello: 'medio', testo: 'Le condizioni economiche dell\'offerta ' + o.chi + (o.offerta ? ' "' + o.offerta + '"' : '') + ' sono scadute il ' + data_(o.scadenza) + ': controlla il nuovo prezzo nella prossima bolletta.' });
+    else if (g >= 0 && g <= 60) out.push({ livello: 'medio', testo: 'Le condizioni economiche dell\'offerta ' + o.chi + (o.offerta ? ' "' + o.offerta + '"' : '') + ' scadono il ' + data_(o.scadenza) + ', tra ' + g + ' giorni: è il momento di confrontare le offerte.' });
+  });
+  if (DOPPIONI_ > 0) out.push({ livello: 'basso', testo: 'Nello Sheet ' + (DOPPIONI_ === 1 ? 'c\'è 1 riga doppia' : 'ci sono ' + DOPPIONI_ + ' righe doppie') + ' (per esempio mail inoltrate con "Fwd:"). Non le conto due volte, ma puoi cancellarle.' });
 
   // 7. il controllo automatico è fermo?
   try {
@@ -2405,4 +2621,177 @@ function tentativoFallito_(motivo) {
     if (conta === 5) notifica_('Tentativi di accesso falliti', ['Nell\'ultima ora qualcuno ha provato 5 volte ad aprire EDITH con un token sbagliato (' + motivo + ').',
       'Se non eri tu, lancia creaTokenVoce in Apps Script: il token cambia e chi ce l\'ha resta fuori. Il registro è nel foglio ACCESSI.'], 'falliti_' + ora);
   } catch (e) { }
+}
+
+/**
+ * EDITH – l'offerta in corso per ogni fornitura, letta dalle bollette.
+ * Le bollette italiane hanno un riquadro con nome dell'offerta, prezzo, quota fissa e scadenza delle condizioni:
+ * qui lo leggo dal testo dell'OCR e tengo nel foglio OFFERTE una riga per fornitore e fornitura, aggiornata con l'ultima bolletta.
+ */
+
+const COLONNE_OFFERTE = ['FORNITORE', 'FORNITURA', 'OFFERTA', 'MERCATO', 'TIPO PREZZO', 'PREZZO LUCE €/KWH', 'PREZZO GAS €/SMC',
+  'QUOTA FISSA €/MESE', 'POTENZA KW', 'SCADENZA CONDIZIONI', 'CONSUMO ANNUO LUCE KWH', 'CONSUMO ANNUO GAS SMC', 'POD', 'PDR',
+  'DA BOLLETTA DEL', 'LINK MAIL', 'AGGIORNATO'];
+
+/** Numero all'italiana con decimali ("0,123456" o "1.234") → Number. */
+function num_(s) {
+  if (s === undefined || s === null) return null;
+  let t = String(s).replace(/\s/g, '');
+  if (/,/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+  else if (/^\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, '');
+  const n = parseFloat(t);
+  return isNaN(n) ? null : n;
+}
+
+/** Prezzo unitario vicino a un'unità di misura: "0,1234 €/kWh", "€/kWh 0,1234", "0,1234 euro/kWh". */
+function prezzoUnitario_(t, unita, min, max) {
+  const u = '(?:€|euro|eur)\\s*\\/\\s*' + unita;
+  const pattern = [
+    new RegExp('(\\d+[,.]\\d{2,6})\\s*' + u, 'gi'),
+    new RegExp(u + '\\s*:?\\s*(\\d+[,.]\\d{2,6})', 'gi'),
+  ];
+  // preferisco i valori vicini a "prezzo", "componente energia", "materia"
+  const cand = [];
+  pattern.forEach(re => {
+    let m;
+    while ((m = re.exec(t)) !== null) {
+      const v = num_(m[1]);
+      if (v === null || v < min || v > max) continue;
+      const prima = t.slice(Math.max(0, m.index - 120), m.index).toLowerCase();
+      const peso = /prezzo|componente energia|materia (prima|energia|gas)|costo (dell )?energia|spesa per la materia|\bpe\b|\bf0\b|monorari|cmem|prezzo gas/.test(prima) ? 2
+        : /trasporto|oneri|accise|iva|distribuzione|perequazione|imposte/.test(prima) ? -1 : 0;
+      cand.push({ v: v, peso: peso, pos: m.index });
+    }
+  });
+  if (!cand.length) return null;
+  cand.sort((a, b) => b.peso - a.peso || a.pos - b.pos);
+  return cand[0].peso < 0 ? null : cand[0].v;
+}
+
+/** Dopo una delle parole chiave, il primo testo "nome" (per il nome dell'offerta). */
+function nomeOfferta_(t) {
+  const re = /(?:nome (?:dell[' ]?)?offerta|denominazione (?:dell[' ]?)?offerta|offerta commerciale|nome (?:del )?prodotto|offerta sottoscritta|la tua offerta|offerta)\s*[:\-]\s*([^\n]{3,60})/i;
+  const m = t.match(re);
+  if (!m) return '';
+  return m[1].replace(/\s*(codice|cod\.|offerta n|valid|mercato|prezzo|scadenza).*$/i, '').replace(/[.;,]+$/, '').trim();
+}
+
+/** Estrae i dettagli dell'offerta dal testo di una bolletta. Restituisce null se non trova niente di utile. */
+function estraiOfferta_(testo) {
+  const t = String(testo || '').replace(/ /g, ' ').replace(/[ \t]+/g, ' ');
+  const low = t.toLowerCase();
+  const o = {};
+  o.offerta = nomeOfferta_(t);
+  o.mercato = /servizio di tutela|maggior tutela|tutela della vulnerabilita|tutela vulnerabil/.test(low) ? 'Tutela'
+    : /tutele graduali|\bstg\b/.test(low) ? 'Tutele graduali' : /mercato libero/.test(low) ? 'Libero' : '';
+  const indicizzato = /\bpun\b|\bpsv\b|indicizzat|variabile|spread|\bttf\b/.test(low);
+  const fisso = /prezzo fisso|fisso per|bloccato|invariabile|prezzo fisso e invariabile/.test(low);
+  o.tipoPrezzo = fisso && !/\bpun\b.*\+|spread/.test(low) ? 'Fisso' : indicizzato ? (/\bpun\b/.test(low) ? 'Variabile (PUN)' : /\bpsv\b/.test(low) ? 'Variabile (PSV)' : 'Variabile') : '';
+  o.prezzoLuce = prezzoUnitario_(t, 'kwh', 0.03, 1.5);
+  o.prezzoGas = prezzoUnitario_(t, 'smc', 0.1, 5);
+  const qf = t.match(/(?:quota fissa|costo fisso|commercializzazione|corrispettivo fisso|canone)[^\n€]{0,80}?(?:€\s*|euro\s*)?(\d+[,.]\d{2,4})\s*(?:€|euro)?\s*\/\s*(mese|anno)/i)
+    || t.match(/(?:quota fissa|costo fisso|commercializzazione|corrispettivo fisso)[^\n]{0,60}?(?:€|euro)\s*\/\s*(?:pdp\s*\/\s*)?(mese|anno)\s*:?\s*(\d+[,.]\d{2,4})/i);
+  if (qf) {
+    const [val, per] = /\d/.test(qf[1]) ? [qf[1], qf[2]] : [qf[2], qf[1]];
+    const v = num_(val);
+    if (v !== null) o.quotaFissa = Math.round((per.toLowerCase() === 'anno' ? v / 12 : v) * 100) / 100;
+  }
+  const pot = t.match(/potenza (?:contrattualmente )?impegnata[^\d\n]{0,25}(\d+(?:[,.]\d+)?)\s*kw\b/i);
+  if (pot) o.potenza = num_(pot[1]);
+  const scad = dataDopo_(t, ['condizioni economiche[^\\n]{0,60}?(?:fino al|valide fino|scadenza|scadono il|scade il)', 'scadenza (?:delle )?condizioni economiche',
+    'prezzo (?:bloccato|fisso)[^\\n]{0,30}?fino al', 'valid[ae] fino al', 'offerta valida fino'], 40);
+  if (scad) o.scadenzaCondizioni = scad;
+  const cl = t.match(/consumo annuo[^\n\d]{0,40}(\d{1,3}(?:\.\d{3})*|\d+)\s*kwh/i);
+  if (cl) o.consumoLuce = num_(cl[1]);
+  const cg = t.match(/consumo annuo[^\n\d]{0,40}(\d{1,3}(?:\.\d{3})*|\d+)\s*smc/i);
+  if (cg) o.consumoGas = num_(cg[1]);
+  const pod = t.match(/\b(IT\s?\d{3}\s?E\s?\d{7,8}[A-Z0-9]?)\b/i);
+  if (pod) o.pod = pod[1].replace(/\s/g, '').toUpperCase();
+  const pdr = t.match(/\bPDR\b[^\d\n]{0,25}(\d{14})\b/i);
+  if (pdr) o.pdr = pdr[1];
+  const utili = ['offerta', 'prezzoLuce', 'prezzoGas', 'quotaFissa', 'scadenzaCondizioni', 'tipoPrezzo'].filter(k => o[k]).length;
+  return utili >= 2 ? o : null;
+}
+
+/** Salva l'offerta letta da una bolletta (tiene la più recente per fornitore e fornitura). */
+function salvaOfferta_(o, fornitore, fornitura, emissione, link) {
+  if (!o) return false;
+  const sh = sheet_(CONFIG.SHEET_OFFERTE);
+  const map = ensureHeaders_(sh, COLONNE_OFFERTE);
+  const righe = readRows_(sh).rows;
+  const chi = String(fornitore || '').split(':')[0].trim();
+  const es = righe.find(r => norm_(r['FORNITORE']) === norm_(chi) && norm_(r['FORNITURA']) === norm_(fornitura));
+  if (es && es['DA BOLLETTA DEL'] instanceof Date && emissione && es['DA BOLLETTA DEL'] > emissione) return false;
+  const obj = {
+    'FORNITORE': chi, 'FORNITURA': fornitura, 'OFFERTA': o.offerta || '', 'MERCATO': o.mercato || '', 'TIPO PREZZO': o.tipoPrezzo || '',
+    'PREZZO LUCE €/KWH': o.prezzoLuce || '', 'PREZZO GAS €/SMC': o.prezzoGas || '', 'QUOTA FISSA €/MESE': o.quotaFissa || '',
+    'POTENZA KW': o.potenza || '', 'SCADENZA CONDIZIONI': o.scadenzaCondizioni || '', 'CONSUMO ANNUO LUCE KWH': o.consumoLuce || '',
+    'CONSUMO ANNUO GAS SMC': o.consumoGas || '', 'POD': o.pod || '', 'PDR': o.pdr || '', 'DA BOLLETTA DEL': emissione || '', 'LINK MAIL': link || '', 'AGGIORNATO': new Date(),
+  };
+  if (es) {
+    // se questa bolletta non riporta un campo, tengo quello che sapevo già (per esempio il POD)
+    Object.keys(obj).forEach(k => { if (obj[k] === '' && es[k] !== '' && es[k] !== undefined) obj[k] = es[k]; });
+    Object.keys(obj).forEach(k => setCell_(sh, map, es._row, k, obj[k]));
+  } else appendObj_(sh, map, obj);
+  return true;
+}
+
+/** Le offerte per l'app e per Edith, in formato semplice. */
+function offerte_() {
+  try {
+    const sh = ss_().getSheetByName(CONFIG.SHEET_OFFERTE);
+    if (!sh || sh.getLastRow() < 2) return [];
+    const n = v => (typeof v === 'number' ? v : null);
+    return readRows_(sh).rows.filter(r => r['FORNITORE']).map(r => ({
+      chi: String(r['FORNITORE']), tipo: String(r['FORNITURA'] || ''), offerta: String(r['OFFERTA'] || ''), mercato: String(r['MERCATO'] || ''),
+      tipoPrezzo: String(r['TIPO PREZZO'] || ''), prezzoLuce: n(r['PREZZO LUCE €/KWH']), prezzoGas: n(r['PREZZO GAS €/SMC']),
+      quotaFissa: n(r['QUOTA FISSA €/MESE']), potenza: n(r['POTENZA KW']), scadenza: iso_(r['SCADENZA CONDIZIONI']),
+      consumoLuce: n(r['CONSUMO ANNUO LUCE KWH']), consumoGas: n(r['CONSUMO ANNUO GAS SMC']), pod: String(r['POD'] || ''), pdr: String(r['PDR'] || ''),
+      da: iso_(r['DA BOLLETTA DEL']), link: String(r['LINK MAIL'] || ''),
+    }));
+  } catch (e) { return []; }
+}
+
+function descriviOfferta_(o) {
+  const p = [];
+  p.push((o.offerta ? 'l\'offerta "' + o.offerta + '"' : 'un\'offerta') + ' di ' + o.chi + (o.mercato ? ' sul mercato ' + (o.mercato === 'Libero' ? 'libero' : 'di ' + o.mercato.toLowerCase()) : ''));
+  if (o.tipoPrezzo) p.push('prezzo ' + o.tipoPrezzo.toLowerCase().replace('(pun)', 'legato al PUN').replace('(psv)', 'legato al PSV'));
+  if (o.prezzoLuce) p.push('luce a ' + String(o.prezzoLuce).replace('.', ',') + ' euro al kWh');
+  if (o.prezzoGas) p.push('gas a ' + String(o.prezzoGas).replace('.', ',') + ' euro allo Smc');
+  if (o.quotaFissa) p.push('quota fissa ' + eur_(o.quotaFissa) + ' al mese');
+  if (o.potenza) p.push('potenza ' + String(o.potenza).replace('.', ',') + ' kW');
+  return p.join(', ') + '.' + (o.scadenza ? ' Le condizioni economiche scadono il ' + data_(o.scadenza) + '.' : '');
+}
+
+/**
+ * Prima volta: rilegge l'ultima bolletta di ogni fornitore per riempire OFFERTE.
+ * Parte da sola dentro il controllo orario finché non ha finito; si può lanciare anche a mano.
+ */
+function leggiOfferte(start) {
+  start = start || Date.now();
+  const props = PropertiesService.getScriptProperties();
+  const sh = ss_().getSheetByName(CONFIG.SHEET_BOLLETTE);
+  if (!sh || sh.getLastRow() < 2) { props.setProperty('OFFERTE_LETTE', '1'); return 0; }
+  const fatte = String(props.getProperty('OFFERTE_FATTE') || '').split(',').filter(Boolean);
+  const viste = {}, daLeggere = [];
+  readRows_(sh).rows.filter(r => r['ID MAIL'] && r['DATA EMISSIONE'] instanceof Date)
+    .sort((a, b) => b['DATA EMISSIONE'] - a['DATA EMISSIONE'])
+    .forEach(r => { const k = norm_(String(r['FORNITORE']).split(':')[0]) + '|' + norm_(r['FORNITURA']); if (!viste[k]) { viste[k] = 1; daLeggere.push(r); } });
+  let lette = 0;
+  for (const r of daLeggere) {
+    const id = String(r['ID MAIL']);
+    if (fatte.indexOf(id) !== -1) continue;
+    if (tempoScaduto_(start)) return lette;
+    try {
+      const msg = GmailApp.getMessageById(id);
+      const pdf = msg.getAttachments({ includeInlineImages: false }).filter(a => a.getContentType() === 'application/pdf' || /\.pdf$/i.test(a.getName()))[0];
+      const testo = (pdf ? ocrPdf_(pdf.copyBlob()) : '') + '\n' + msg.getPlainBody();
+      if (salvaOfferta_(estraiOfferta_(testo), r['FORNITORE'], r['FORNITURA'], r['DATA EMISSIONE'], r['LINK MAIL'])) lette++;
+    } catch (e) { log_('Offerte', 'Non riesco a leggere ' + r['FORNITORE'] + ': ' + e.message); }
+    fatte.push(id);
+    props.setProperty('OFFERTE_FATTE', fatte.slice(-50).join(','));
+  }
+  props.setProperty('OFFERTE_LETTE', '1');
+  if (lette) log_('Offerte', lette + ' offerte lette dalle bollette');
+  return lette;
 }

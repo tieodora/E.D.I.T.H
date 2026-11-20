@@ -28,8 +28,8 @@ class Foglio {
       getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => ((self.righe[r - 1 + i] || [])[c - 1 + j] ?? ''))),
       getValue: () => (self.righe[r - 1] || [])[c - 1] ?? '',
       setValue: v => { while (self.righe.length < r) self.righe.push([]); self.righe[r - 1][c - 1] = v; },
-      setValues: vs => vs.forEach((row, i) => row.forEach((v, j) => { while (self.righe.length < r + i) self.righe.push([]); self.righe[r - 1 + i][c - 1 + j] = v; })),
-      setNumberFormat() { return this; }, setFontWeight() { return this; }, setBackground() { return this; },
+      setValues(vs) { vs.forEach((row, i) => row.forEach((v, j) => { while (self.righe.length < r + i) self.righe.push([]); self.righe[r - 1 + i][c - 1 + j] = v; })); return this; },
+      setNumberFormat() { return this; }, setFontWeight() { return this; }, setBackground() { return this; }, setFontColor() { return this; },
     };
   }
   appendRow(r) { this.righe.push(r.slice()); }
@@ -41,6 +41,7 @@ function carica(opz = {}) {
   const props = Object.assign({}, opz.props || {});
   const fogli = {};
   const posta = [];
+  const cache = {};
   class D extends Date {
     constructor(...a) { if (a.length) super(...a); else super(OGGI.getTime()); }
     static now() { return OGGI.getTime(); }
@@ -69,6 +70,7 @@ function carica(opz = {}) {
         deleteProperty: k => { delete props[k]; },
       }),
     },
+    CacheService: { getScriptCache: () => ({ get: k => (cache[k] === undefined ? null : cache[k]), put: (k, v) => { cache[k] = v; }, remove: k => { delete cache[k]; } }) },
     LockService: { getScriptLock: () => ({ tryLock: () => true, waitLock: () => {}, releaseLock: () => {} }) },
     SpreadsheetApp: { getActiveSpreadsheet: () => null, openById: () => ss },
     ScriptApp: { getProjectTriggers: () => [{ getHandlerFunction: () => 'elaboraTutto' }] },

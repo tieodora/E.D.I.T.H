@@ -165,7 +165,13 @@ function anomalie_(P) {
   if (ver.length) out.push({ livello: 'basso', testo: (ver.length === 1 ? 'Una pratica non è stata letta del tutto' : ver.length + ' pratiche non sono state lette del tutto') + ': ' + ver.slice(0, 3).map(p => p.oggetto || nome(p)).join('; ') + '.' });
 
   // 6. doppioni tolti dal conteggio
-  if (DOPPIONI_ > 0) out.push({ livello: 'basso', testo: 'Nello Sheet ci sono ' + DOPPIONI_ + (DOPPIONI_ === 1 ? ' riga doppia' : ' righe doppie') + ' (per esempio mail inoltrate con "Fwd:"). Non le conto due volte, ma puoi cancellarle.' });
+  // offerte: condizioni economiche in scadenza (dopo, di solito, il prezzo cambia)
+  offerte_().filter(o => o.scadenza).forEach(o => {
+    const g = -giorniDa(o.scadenza);
+    if (g < 0 && g > -120) out.push({ livello: 'medio', testo: 'Le condizioni economiche dell\'offerta ' + o.chi + (o.offerta ? ' "' + o.offerta + '"' : '') + ' sono scadute il ' + data_(o.scadenza) + ': controlla il nuovo prezzo nella prossima bolletta.' });
+    else if (g >= 0 && g <= 60) out.push({ livello: 'medio', testo: 'Le condizioni economiche dell\'offerta ' + o.chi + (o.offerta ? ' "' + o.offerta + '"' : '') + ' scadono il ' + data_(o.scadenza) + ', tra ' + g + ' giorni: è il momento di confrontare le offerte.' });
+  });
+  if (DOPPIONI_ > 0) out.push({ livello: 'basso', testo: 'Nello Sheet ' + (DOPPIONI_ === 1 ? 'c\'è 1 riga doppia' : 'ci sono ' + DOPPIONI_ + ' righe doppie') + ' (per esempio mail inoltrate con "Fwd:"). Non le conto due volte, ma puoi cancellarle.' });
 
   // 7. il controllo automatico è fermo?
   try {

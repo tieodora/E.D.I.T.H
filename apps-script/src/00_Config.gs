@@ -30,6 +30,7 @@ const CONFIG = {
   SHEET_PESANTI: 'MAIL PESANTI',
   SHEET_LOG: 'LOG',
   SHEET_ACCESSI: 'ACCESSI',
+  SHEET_OFFERTE: 'OFFERTE',
 
   // Promemoria
   // 'principale' = eventi nel tuo calendario di sempre (consigliato); 'dedicato' = calendario separato EDITH Scadenze

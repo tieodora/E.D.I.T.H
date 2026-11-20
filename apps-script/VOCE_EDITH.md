@@ -46,6 +46,8 @@ Il repository ora è privato, e con l'account gratuito GitHub Pages funziona sol
 ## Cosa sa fare
 - Scadenze, spese, confronti tra mesi, "e il mese scorso?", "quanto manca alla scadenza?", "la bolletta più cara".
 - **Controllo anomalie:** "ci sono anomalie?" o "va tutto bene?". Cerca bollette molto sopra la tua media, pagamenti scaduti, rate di assicurazione mai arrivate, fornitori che non mandano bollette da più di 75 giorni, pratiche lette male, righe doppie, controllo automatico fermo e spazio quasi pieno. Le trovi anche in Home, nel riquadro "Controllo sistema".
+- **La tua offerta:** "che offerta ho per la luce?", "quanto pago al kWh?", "quando scadono le condizioni?", "qual è il mio POD?". EDITH legge dalle bollette nome dell'offerta, prezzo fisso o variabile, prezzo al kWh e allo Smc, quota fissa, potenza, consumo annuo, POD e PDR, e scadenza delle condizioni economiche. Li trovi nello Sheet (foglio OFFERTE) e in Home ("Le tue offerte"). Due mesi prima che scadano le condizioni ti avvisa tra le anomalie. Per le bollette già arrivate rilegge da sola l'ultima di ogni fornitore al primo controllo orario.
+- **Pratiche "Da verificare":** EDITH le rilegge da sola una volta con le regole nuove e, se adesso trova tutto, le completa.
 - **Previsione:** "quanto spenderò a fine anno?".
 - **Consigli:** "consigli per risparmiare", basati sui tuoi dati.
 - **Briefing:** il primo saluto della mattina, o quando chiedi "briefing".
@@ -54,7 +56,7 @@ Il repository ora è privato, e con l'account gratuito GitHub Pages funziona sol
 - **Posta:** "Esegui azioni scelte" ora rifà l'azione anche su un mittente già trattato, se cambi la scelta, e alla fine ti dice quante azioni sono riuscite.
 
 ## IA sul telefono (sperimentale, gratis)
-In ⚙︎ accendi **Usa l'IA locale quando non capisco**. La prima volta il telefono scarica un piccolo modello (circa 1 GB, meglio col Wi-Fi), poi resta salvato. Gira tutto sul telefono: niente abbonamenti e i tuoi dati non escono da lì.
+In ⚙︎ accendi **Usa l'IA locale quando non capisco**. La prima volta il telefono scarica un piccolo modello (Gemma 3 di Google, circa 700 MB, meglio col Wi-Fi), poi resta salvato. Gira tutto sul telefono: niente abbonamenti e i tuoi dati non escono da lì.
 - Le risposte su importi e scadenze restano quelle precise di sempre. L'IA risponde solo alle domande che le regole non capiscono, e la bolla porta la scritta "IA locale".
 - Serve Chrome aggiornato (sul tuo S23 va bene). Le prime risposte possono metterci qualche secondo, e il telefono si scalda un po' mentre la usi.
 - Se non ti convince, spegni l'interruttore e EDITH torna come prima.

@@ -130,6 +130,7 @@ function log_(azione, dettaglio) {
     const sh = sheet_(CONFIG.SHEET_LOG);
     if (sh.getLastRow() === 0) sh.appendRow(['QUANDO', 'AZIONE', 'DETTAGLIO']);
     sh.appendRow([new Date(), azione, String(dettaglio).slice(0, 5000)]);
+    if (sh.getLastRow() > 3000) sh.deleteRows(2, 500);   // il registro non cresce all'infinito
   } catch (e) {
     console.log(azione + ': ' + dettaglio);
   }
@@ -152,6 +153,22 @@ function avviso_(messaggio) {
 
 function toast_(messaggio) {
   try { ss_().toast(messaggio, 'EDITH', 5); } catch (e) { console.log(messaggio); }
+}
+
+/** Errore dovuto ai limiti giornalieri di Google (meglio fermarsi e riprovare al giro dopo). */
+function eLimiteGoogle_(e) {
+  return /too many times|quota|limit exceeded|rate limit|troppe volte|limite|service unavailable|try again later/i.test(String(e && e.message || e));
+}
+
+/** Riprova una funzione che può fallire per un disguido temporaneo di Google. */
+function conRiprova_(fn, tentativi) {
+  tentativi = tentativi || 3;
+  for (let i = 1; ; i++) {
+    try { return fn(); } catch (e) {
+      if (i >= tentativi || !/unavailable|internal error|backend error|timed out|timeout|server error|try again|errore interno|empty response/i.test(String(e.message))) throw e;
+      Utilities.sleep(1000 * i * i);
+    }
+  }
 }
 
 function tempoScaduto_(start) {

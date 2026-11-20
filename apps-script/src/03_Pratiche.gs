@@ -15,8 +15,11 @@ function elaboraTutto() {
     elaboraPratiche_('bollette', start);
     if (!tempoScaduto_(start)) elaboraPratiche_('assicurazioni', start);
     if (!tempoScaduto_(start)) sincronizzaStati();
+    if (!tempoScaduto_(start) && !PropertiesService.getScriptProperties().getProperty('OFFERTE_LETTE')) leggiOfferte(start);
+    if (!tempoScaduto_(start)) riprovaDaVerificare_(start);
     avvisaNuoveDaVerificare_(prima);
     PropertiesService.getScriptProperties().setProperty('ULTIMO_CONTROLLO', String(Date.now()));
+    svuotaCache_();
   } catch (e) {
     log_('Errore elaborazione', e.message);
     notifica_('Errore nel controllo della posta', ['Il controllo automatico della posta si è fermato con questo errore:', e.message,
@@ -76,6 +79,7 @@ function elaboraPratiche_(tipoPratica, start) {
         registrateNelThread = true;
         nuove++;
       } catch (e) {
+        if (eLimiteGoogle_(e)) { log_('Limite Google', 'Raggiunto il limite giornaliero (' + e.message + '): riprendo al prossimo giro.'); return; }
         log_('Errore ' + tipoPratica, msg.getSubject() + ' -> ' + e.message);
       }
     }
@@ -116,6 +120,7 @@ function analizzaMessaggio_(msg, tipoPratica) {
     try {
       const testo = ocrPdf_(pdf.copyBlob());
       const d = estraiDati_(testo, tipoPratica, mittente, msg.getSubject());
+      d.testo = testo;
       if (!migliore || d.confidenza > migliore.confidenza) migliore = d;
     } catch (e) {
       note.push('OCR fallito su ' + pdf.getName() + ' (' + e.message + ')');
@@ -132,6 +137,7 @@ function analizzaMessaggio_(msg, tipoPratica) {
     if (migliore.tipo === 'Altro' && corpo.tipo !== 'Altro') migliore.tipo = corpo.tipo;
   }
   migliore.note = note;
+  migliore.testo = (migliore.testo || '') + '\n' + msg.getPlainBody();
   return migliore;
 }
 
@@ -171,6 +177,10 @@ function registraPratica_(sh, map, msg, thread, d, tipoPratica) {
     Object.assign(obj, { 'FORNITURA': d.tipo, 'FORNITORE': d.fornitore, 'N. DOCUMENTO': d.numero });
   }
   const row = appendObj_(sh, map, obj);
+  if (tipoPratica === 'bollette' && d.testo) {
+    try { salvaOfferta_(estraiOfferta_(d.testo), d.fornitore, d.tipo, emissione, thread.getPermalink()); }
+    catch (e) { log_('Offerte', 'Non riesco a salvare l\'offerta: ' + e.message); }
+  }
 
   // Promemoria solo se c'è una scadenza e la pratica non è vecchia di oltre 30 giorni
   if (d.scadenza && d.scadenza > new Date(Date.now() - 30 * 864e5)) {
@@ -232,4 +242,49 @@ function unisciDuplicato_(sh, map, d, tipoPratica, msg) {
   }
   log_('Duplicato unito', msg.getSubject() + ' -> riga ' + dup._row);
   return true;
+}
+
+/**
+ * Riprova le pratiche "Da verificare": rilegge la mail con le regole aggiornate e, se ora trova
+ * scadenza, importo e tipo, completa la riga da sola. Ogni pratica viene riprovata una volta sola.
+ */
+function riprovaDaVerificare_(start) {
+  start = start || Date.now();
+  let sistemate = 0;
+  [['bollette', CONFIG.SHEET_BOLLETTE], ['assicurazioni', CONFIG.SHEET_ASSICURAZIONI]].forEach(([tipoPratica, nome]) => {
+    const sh = ss_().getSheetByName(nome);
+    if (!sh || sh.getLastRow() < 2) return;
+    const map = colMap_(sh);
+    const colTipo = tipoPratica === 'assicurazioni' ? 'RAMO' : 'FORNITURA';
+    const daRifare = readRows_(sh).rows.filter(r => r['STATO PAGAMENTO'] === STATO.DA_VERIFICARE && r['ID MAIL'] && !/riprovat/.test(String(r['NOTE OCR'] || ''))).slice(0, 3);
+    for (const r of daRifare) {
+      if (tempoScaduto_(start)) return;
+      let nota = 'riprovata il ' + Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'dd/MM');
+      try {
+        const msg = GmailApp.getMessageById(String(r['ID MAIL']));
+        const d = analizzaMessaggio_(msg, tipoPratica);
+        if (d) {
+          const vuoto = k => r[k] === '' || r[k] === null || r[k] === undefined || r[k] === 'Altro';
+          if (vuoto('DATA SCADENZA') && d.scadenza) setCell_(sh, map, r._row, 'DATA SCADENZA', d.scadenza);
+          if (vuoto('IMPORTO') && d.importo) setCell_(sh, map, r._row, 'IMPORTO', d.importo);
+          if (vuoto(colTipo) && d.tipo !== 'Altro') setCell_(sh, map, r._row, colTipo, d.tipo);
+          const scad = r['DATA SCADENZA'] instanceof Date ? r['DATA SCADENZA'] : d.scadenza;
+          const completa = scad && (typeof r['IMPORTO'] === 'number' || d.importo) && (!vuoto(colTipo) || d.tipo !== 'Altro');
+          if (completa) {
+            setCell_(sh, map, r._row, 'STATO PAGAMENTO', scad < oggi_() ? STATO.SCADUTA : STATO.DA_PAGARE);
+            nota += ': completata da sola';
+            sistemate++;
+            if (!r['TASK ID'] && scad > new Date(Date.now() - 30 * 864e5)) { try { creaPromemoria_(sh, map, r._row, tipoPratica); } catch (e) { } }
+          } else nota += ': ancora incompleta, controllala a mano';
+          if (tipoPratica === 'bollette' && d.testo) { try { salvaOfferta_(estraiOfferta_(d.testo), r['FORNITORE'], r['FORNITURA'] || d.tipo, r['DATA EMISSIONE'], r['LINK MAIL']); } catch (e) { } }
+        }
+      } catch (e) {
+        if (eLimiteGoogle_(e)) return;
+        nota += ': ' + e.message;
+      }
+      setCell_(sh, map, r._row, 'NOTE OCR', String(r['NOTE OCR'] || '') + ' · ' + nota);
+    }
+  });
+  if (sistemate) { log_('Da verificare', sistemate + ' pratiche completate da sola'); try { aggiornaDashboard(); } catch (e) { } }
+  return sistemate;
 }

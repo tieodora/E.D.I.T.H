@@ -43,3 +43,18 @@ test('assicurazione: premio e polizza', () => {
   assert.strictEqual(r.importo, 779);
   assert.strictEqual(r.numero, '123456789');
 });
+
+test('bolletta con addebito in conto: scadenza e importo dall\'addebito', () => {
+  const testo = 'Fattura n. 55 del 02/10/2026\nfornitura gas naturale PDR 00881234567890 consumo 40 Smc\nL\'importo di € 48,30 sarà addebitato il 22/10/2026 sul conto corrente';
+  const r = E.estraiDati_(testo, 'bollette', 'Gas <a@b.it>', 'Bolletta');
+  assert.strictEqual(r.importo, 48.3);
+  assert.strictEqual(iso(r.scadenza), '2026-10-22');
+});
+
+test('limiti di Google riconosciuti, disguidi temporanei riprovati', () => {
+  assert.ok(E.eLimiteGoogle_(new Error('Service invoked too many times for one day: driveapi')));
+  assert.ok(!E.eLimiteGoogle_(new Error('File non trovato')));
+  let n = 0;
+  assert.strictEqual(E.conRiprova_(() => { if (++n < 3) throw new Error('Backend Error'); return 'ok'; }), 'ok');
+  assert.throws(() => E.conRiprova_(() => { throw new Error('File non trovato'); }));
+});

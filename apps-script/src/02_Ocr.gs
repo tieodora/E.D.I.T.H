@@ -8,14 +8,15 @@ function ocrPdf_(blob) {
   const nome = 'EDITH_OCR_tmp_' + Date.now();
   let file, pdfTemp;
   try {
-    file = Drive.Files.create({ name: nome, mimeType: MimeType.GOOGLE_DOCS }, blob, { ocrLanguage: 'it', fields: 'id' });
+    file = conRiprova_(() => Drive.Files.create({ name: nome, mimeType: MimeType.GOOGLE_DOCS }, blob, { ocrLanguage: 'it', fields: 'id' }));
   } catch (e) {
+    if (eLimiteGoogle_(e)) throw e;
     // Ripiego: alcuni PDF non si convertono al caricamento ma si convertono con una copia
     pdfTemp = Drive.Files.create({ name: nome + '.pdf' }, blob.setContentType('application/pdf'), { fields: 'id' });
     file = Drive.Files.copy({ name: nome, mimeType: MimeType.GOOGLE_DOCS }, pdfTemp.id, { ocrLanguage: 'it', fields: 'id' });
   }
   try {
-    return DocumentApp.openById(file.id).getBody().getText();
+    return conRiprova_(() => DocumentApp.openById(file.id).getBody().getText());
   } finally {
     [file, pdfTemp].forEach(f => {
       if (!f) return;
@@ -158,13 +159,13 @@ function estraiDati_(text, tipoPratica, mittente, oggetto) {
   ], 60);
 
   const scadenza = dataDopo_(t, isAss
-    ? ['scadenza rata', 'data scadenza', 'scadenza', 'pagare entro il', 'entro il', 'scade il', 'data effetto', 'decorrenza']
-    : ['data scadenza', 'scadenza', 'da pagare entro il', 'pagare entro', 'entro il', 'scade il'], 100,
+    ? ['scadenza rata', 'data scadenza', 'scadenza', 'pagare entro il', 'entro il', 'scade il', 'data effetto', 'decorrenza', 'addebit\\w* (?:il|in data)']
+    : ['data scadenza', 'scadenza', 'da pagare entro il', 'pagare entro', 'entro il', 'scade il', 'addebit\\w* (?:il|in data|a partire dal)', 'data (?:di )?addebito', 'pagamento entro'], 100,
     d => !emissione || d >= emissione);
 
   const importo = importoDopo_(t, isAss
     ? ['premio totale', 'premio lordo', 'totale da pagare', 'importo da pagare', 'importo rata', 'premio rata', 'totale', 'premio', 'importo']
-    : ['totale da pagare', 'importo da pagare', 'totale bolletta', 'totale fattura', 'totale documento', 'importo totale', 'da pagare', 'totale', 'importo']);
+    : ['totale da pagare', 'importo da pagare', 'totale bolletta', 'totale fattura', 'totale documento', 'importo totale', 'importo addebitato', 'sar[aà] addebitat[oa]', 'importo da addebitare', 'da pagare', 'totale', 'importo']);
 
   const docMatch = t.match(/(?:fattura|bolletta|documento)\s*(?:n\.?|nr\.?|numero|n°)?\s*[:°]?\s*([A-Z0-9\/\-]*\d[A-Z0-9\/\-]*)/i);
   const polMatch = t.match(/(?:[Pp]olizza|POLIZZA|[Cc]ontratto|CONTRATTO)\s*(?:[Nn]\.?|[Nn]r\.?|[Nn]umero|[Nn]°)?\s*[:°]?\s*(\d[A-Z0-9\/\-]{3,14}|[A-Z]{1,4}\d[A-Z0-9\/\-]{3,14})(?![a-z])/);
