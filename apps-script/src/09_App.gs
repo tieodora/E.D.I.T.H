@@ -35,6 +35,16 @@ function uguali_(a, b) {
   return diff === 0;
 }
 
+/** Errore pensato per essere mostrato nell'app: tutti gli altri arrivano come messaggio generico. */
+function rifiuto_(messaggio) { const e = new Error(messaggio); e.perApp = true; return e; }
+
+/** La riga deve essere un numero intero tra la prima riga di dati (2) e l'ultima: mai l'intestazione. */
+function rigaValida_(sh, riga) {
+  const n = Number(riga);
+  if (!Number.isInteger(n) || n < 2 || n > sh.getLastRow()) throw rifiuto_('Riga non valida');
+  return n;
+}
+
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -45,8 +55,9 @@ function doPost(e) {
   try { req = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return json_({ ok: false, errore: 'Richiesta non valida' }); }
   const v = verificaToken_(req.k);
   if (!v.ok) {
+    // niente attesa: un token di 160 bit non si indovina per tentativi, e ogni attesa terrebbe occupata
+    // una delle ~30 esecuzioni contemporanee di Apps Script (chi bombarda l'URL bloccherebbe anche te)
     tentativoFallito_(v.motivo);
-    Utilities.sleep(1500);
     return json_({ ok: false, errore: v.motivo === 'token scaduto' ? 'Token scaduto: rilancia creaTokenVoce in Apps Script e reinseriscilo' : 'Token non valido' });
   }
   // Le funzioni dell'app. Quelle che cancellano mail chiedono conferma nell'app e mandano tutto nel Cestino.
@@ -62,8 +73,8 @@ function doPost(e) {
   try {
     return json_(Object.assign({ ok: true, r: f.apply(null, Array.isArray(req.a) ? req.a.slice(0, 4) : []) }, v.nuovo ? { k: v.nuovo } : {}));
   } catch (err) {
-    log_('Errore EDITH Voce', req.f + ' -> ' + err.message);
-    return json_({ ok: false, errore: err.message });
+    log_('Errore EDITH Voce', req.f + ' -> ' + err.message + (err.stack ? '\n' + err.stack : ''));
+    return json_({ ok: false, errore: err.perApp ? err.message : 'Qualcosa non ha funzionato: il dettaglio è nel foglio LOG' });
   }
 }
 
@@ -179,8 +190,9 @@ function apiElabora() {
 function apiSegnaPagata(foglio, riga) {
   svuotaCache_();
   const sh = ss_().getSheetByName(foglio);
-  if (!sh || [CONFIG.SHEET_BOLLETTE, CONFIG.SHEET_ASSICURAZIONI].indexOf(foglio) === -1) throw new Error('Foglio non valido');
+  if (!sh || [CONFIG.SHEET_BOLLETTE, CONFIG.SHEET_ASSICURAZIONI].indexOf(foglio) === -1) throw rifiuto_('Foglio non valido');
   const map = colMap_(sh);
+  riga = rigaValida_(sh, riga);
   setCell_(sh, map, riga, 'STATO PAGAMENTO', STATO.CONCLUSA);
   setCell_(sh, map, riga, 'PAGATA IL', new Date());
   const r = leggiRiga_(sh, map, riga);
@@ -204,9 +216,10 @@ function righeFoglio_(nome) {
 function apiIscrizioni() { return { righe: righeFoglio_(CONFIG.SHEET_ISCRIZIONI), azioni: AZIONI_ISCRIZIONE }; }
 function apiAnalizzaIscrizioni() { analizzaIscrizioni(); return apiIscrizioni(); }
 function apiSalvaAzione(riga, azione) {
-  if (AZIONI_ISCRIZIONE.indexOf(azione) === -1) throw new Error('Azione non valida');
+  if (AZIONI_ISCRIZIONE.indexOf(azione) === -1) throw rifiuto_('Azione non valida');
   const sh = sheet_(CONFIG.SHEET_ISCRIZIONI);
   const map = colMap_(sh);
+  riga = rigaValida_(sh, riga);
   setCell_(sh, map, riga, 'AZIONE', azione);
   // nuova scelta = nuova azione da eseguire, anche se su quel mittente avevi già fatto qualcosa
   setCell_(sh, map, riga, 'ESITO', '');
@@ -233,19 +246,19 @@ function apiAnteprimaPulizia() { anteprimaPulizia(); return apiPulizia(); }
 function apiReportPesanti() { reportMailPesanti(); return apiPulizia(); }
 function apiSpunta(foglio, riga, colonna, valore) {
   const ammessi = { [CONFIG.SHEET_PULIZIA]: 'ESEGUI', [CONFIG.SHEET_PESANTI]: 'CESTINA' };
-  if (ammessi[foglio] !== colonna) throw new Error('Campo non modificabile');
+  if (ammessi[foglio] !== colonna) throw rifiuto_('Campo non modificabile');
   const sh = sheet_(foglio);
-  setCell_(sh, colMap_(sh), riga, colonna, valore === true);
+  setCell_(sh, colMap_(sh), rigaValida_(sh, riga), colonna, valore === true);
   return true;
 }
 /** Chiamate solo dopo la conferma mostrata nell'app. */
 /** Spunta o toglie la spunta a tutte le righe in un colpo solo (stessi campi ammessi di apiSpunta). */
 function apiSpuntaTutte(foglio, colonna, valore) {
   const ammessi = { [CONFIG.SHEET_PULIZIA]: 'ESEGUI', [CONFIG.SHEET_PESANTI]: 'CESTINA' };
-  if (ammessi[foglio] !== colonna) throw new Error('Campo non modificabile');
+  if (ammessi[foglio] !== colonna) throw rifiuto_('Campo non modificabile');
   const sh = sheet_(foglio), map = colMap_(sh), n = sh.getLastRow() - 1;
   const col = map[norm_(colonna)];
-  if (col === undefined) throw new Error('Colonna ' + colonna + ' non trovata');
+  if (col === undefined) throw rifiuto_('Colonna ' + colonna + ' non trovata');
   if (n > 0) sh.getRange(2, col + 1, n, 1).setValues(Array.from({ length: n }, () => [valore === true]));
   return true;
 }

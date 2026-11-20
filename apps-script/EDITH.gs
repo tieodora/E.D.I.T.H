@@ -211,6 +211,9 @@ function euro_(n) {
   return '€ ' + n.toFixed(2).replace('.', ',');
 }
 
+/** Per gli errori che non devono fermare il lavoro: niente più catch vuoti, almeno una riga nel LOG. */
+function ignora_(dove, e) { log_('Errore ignorato', dove + ': ' + (e && e.message || e)); }
+
 function log_(azione, dettaglio) {
   try {
     const sh = sheet_(CONFIG.SHEET_LOG);
@@ -459,7 +462,7 @@ function elaboraTutto() {
   try {
     const start = Date.now();
     let prima = [];
-    try { prima = pratiche_(); } catch (e) { }
+    try { prima = pratiche_(); } catch (e) { ignora_('pratiche prima del controllo', e); }
     elaboraPratiche_('bollette', start);
     if (!tempoScaduto_(start)) elaboraPratiche_('assicurazioni', start);
     if (!tempoScaduto_(start)) sincronizzaStati();
@@ -723,9 +726,9 @@ function riprovaDaVerificare_(start) {
             setCell_(sh, map, r._row, 'STATO PAGAMENTO', scad < oggi_() ? STATO.SCADUTA : STATO.DA_PAGARE);
             nota += ': completata da sola';
             sistemate++;
-            if (!r['TASK ID'] && scad > new Date(Date.now() - 30 * 864e5)) { try { creaPromemoria_(sh, map, r._row, tipoPratica); } catch (e) { } }
+            if (!r['TASK ID'] && scad > new Date(Date.now() - 30 * 864e5)) { try { creaPromemoria_(sh, map, r._row, tipoPratica); } catch (e) { ignora_('promemoria riga ' + r._row, e); } }
           } else nota += ': ancora incompleta, controllala a mano';
-          if (tipoPratica === 'bollette' && d.testo) { try { salvaOfferta_(estraiOfferta_(d.testo), r['FORNITORE'], r['FORNITURA'] || d.tipo, r['DATA EMISSIONE'], r['LINK MAIL']); } catch (e) { } }
+          if (tipoPratica === 'bollette' && d.testo) { try { salvaOfferta_(estraiOfferta_(d.testo), r['FORNITORE'], r['FORNITURA'] || d.tipo, r['DATA EMISSIONE'], r['LINK MAIL']); } catch (e) { ignora_('offerta riga ' + r._row, e); } }
         }
       } catch (e) {
         if (eLimiteGoogle_(e)) return;
@@ -734,7 +737,7 @@ function riprovaDaVerificare_(start) {
       setCell_(sh, map, r._row, 'NOTE OCR', String(r['NOTE OCR'] || '') + ' · ' + nota);
     }
   });
-  if (sistemate) { log_('Da verificare', sistemate + ' pratiche completate da sola'); try { aggiornaDashboard(); } catch (e) { } }
+  if (sistemate) { log_('Da verificare', sistemate + ' pratiche completate da sola'); try { aggiornaDashboard(); } catch (e) { ignora_('dashboard', e); } }
   return sistemate;
 }
 
@@ -1401,7 +1404,7 @@ function reportMailPesanti() {
       (m.payload.headers || []).forEach(x => { h[x.name.toLowerCase()] = x.value; });
       righe.push([false, new Date(Number(m.internalDate)), h['from'] || '', h['subject'] || '',
         round2_(Number(m.sizeEstimate) / 1048576), 'https://mail.google.com/mail/u/0/#all/' + m.threadId, id]);
-    } catch (e) {}
+    } catch (e) { ignora_('mail pesante ' + id, e); }
   }
   righe.sort((a, b) => b[4] - a[4]);
   const top = righe.slice(0, CONFIG.PESANTI_MAX);
@@ -1582,6 +1585,16 @@ function uguali_(a, b) {
   return diff === 0;
 }
 
+/** Errore pensato per essere mostrato nell'app: tutti gli altri arrivano come messaggio generico. */
+function rifiuto_(messaggio) { const e = new Error(messaggio); e.perApp = true; return e; }
+
+/** La riga deve essere un numero intero tra la prima riga di dati (2) e l'ultima: mai l'intestazione. */
+function rigaValida_(sh, riga) {
+  const n = Number(riga);
+  if (!Number.isInteger(n) || n < 2 || n > sh.getLastRow()) throw rifiuto_('Riga non valida');
+  return n;
+}
+
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
@@ -1592,8 +1605,9 @@ function doPost(e) {
   try { req = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return json_({ ok: false, errore: 'Richiesta non valida' }); }
   const v = verificaToken_(req.k);
   if (!v.ok) {
+    // niente attesa: un token di 160 bit non si indovina per tentativi, e ogni attesa terrebbe occupata
+    // una delle ~30 esecuzioni contemporanee di Apps Script (chi bombarda l'URL bloccherebbe anche te)
     tentativoFallito_(v.motivo);
-    Utilities.sleep(1500);
     return json_({ ok: false, errore: v.motivo === 'token scaduto' ? 'Token scaduto: rilancia creaTokenVoce in Apps Script e reinseriscilo' : 'Token non valido' });
   }
   // Le funzioni dell'app. Quelle che cancellano mail chiedono conferma nell'app e mandano tutto nel Cestino.
@@ -1609,8 +1623,8 @@ function doPost(e) {
   try {
     return json_(Object.assign({ ok: true, r: f.apply(null, Array.isArray(req.a) ? req.a.slice(0, 4) : []) }, v.nuovo ? { k: v.nuovo } : {}));
   } catch (err) {
-    log_('Errore EDITH Voce', req.f + ' -> ' + err.message);
-    return json_({ ok: false, errore: err.message });
+    log_('Errore EDITH Voce', req.f + ' -> ' + err.message + (err.stack ? '\n' + err.stack : ''));
+    return json_({ ok: false, errore: err.perApp ? err.message : 'Qualcosa non ha funzionato: il dettaglio è nel foglio LOG' });
   }
 }
 
@@ -1726,8 +1740,9 @@ function apiElabora() {
 function apiSegnaPagata(foglio, riga) {
   svuotaCache_();
   const sh = ss_().getSheetByName(foglio);
-  if (!sh || [CONFIG.SHEET_BOLLETTE, CONFIG.SHEET_ASSICURAZIONI].indexOf(foglio) === -1) throw new Error('Foglio non valido');
+  if (!sh || [CONFIG.SHEET_BOLLETTE, CONFIG.SHEET_ASSICURAZIONI].indexOf(foglio) === -1) throw rifiuto_('Foglio non valido');
   const map = colMap_(sh);
+  riga = rigaValida_(sh, riga);
   setCell_(sh, map, riga, 'STATO PAGAMENTO', STATO.CONCLUSA);
   setCell_(sh, map, riga, 'PAGATA IL', new Date());
   const r = leggiRiga_(sh, map, riga);
@@ -1751,9 +1766,10 @@ function righeFoglio_(nome) {
 function apiIscrizioni() { return { righe: righeFoglio_(CONFIG.SHEET_ISCRIZIONI), azioni: AZIONI_ISCRIZIONE }; }
 function apiAnalizzaIscrizioni() { analizzaIscrizioni(); return apiIscrizioni(); }
 function apiSalvaAzione(riga, azione) {
-  if (AZIONI_ISCRIZIONE.indexOf(azione) === -1) throw new Error('Azione non valida');
+  if (AZIONI_ISCRIZIONE.indexOf(azione) === -1) throw rifiuto_('Azione non valida');
   const sh = sheet_(CONFIG.SHEET_ISCRIZIONI);
   const map = colMap_(sh);
+  riga = rigaValida_(sh, riga);
   setCell_(sh, map, riga, 'AZIONE', azione);
   // nuova scelta = nuova azione da eseguire, anche se su quel mittente avevi già fatto qualcosa
   setCell_(sh, map, riga, 'ESITO', '');
@@ -1780,19 +1796,19 @@ function apiAnteprimaPulizia() { anteprimaPulizia(); return apiPulizia(); }
 function apiReportPesanti() { reportMailPesanti(); return apiPulizia(); }
 function apiSpunta(foglio, riga, colonna, valore) {
   const ammessi = { [CONFIG.SHEET_PULIZIA]: 'ESEGUI', [CONFIG.SHEET_PESANTI]: 'CESTINA' };
-  if (ammessi[foglio] !== colonna) throw new Error('Campo non modificabile');
+  if (ammessi[foglio] !== colonna) throw rifiuto_('Campo non modificabile');
   const sh = sheet_(foglio);
-  setCell_(sh, colMap_(sh), riga, colonna, valore === true);
+  setCell_(sh, colMap_(sh), rigaValida_(sh, riga), colonna, valore === true);
   return true;
 }
 /** Chiamate solo dopo la conferma mostrata nell'app. */
 /** Spunta o toglie la spunta a tutte le righe in un colpo solo (stessi campi ammessi di apiSpunta). */
 function apiSpuntaTutte(foglio, colonna, valore) {
   const ammessi = { [CONFIG.SHEET_PULIZIA]: 'ESEGUI', [CONFIG.SHEET_PESANTI]: 'CESTINA' };
-  if (ammessi[foglio] !== colonna) throw new Error('Campo non modificabile');
+  if (ammessi[foglio] !== colonna) throw rifiuto_('Campo non modificabile');
   const sh = sheet_(foglio), map = colMap_(sh), n = sh.getLastRow() - 1;
   const col = map[norm_(colonna)];
-  if (col === undefined) throw new Error('Colonna ' + colonna + ' non trovata');
+  if (col === undefined) throw rifiuto_('Colonna ' + colonna + ' non trovata');
   if (n > 0) sh.getRange(2, col + 1, n, 1).setValues(Array.from({ length: n }, () => [valore === true]));
   return true;
 }
@@ -2405,7 +2421,7 @@ function testoRiepilogo_() {
     r.push('Da controllare nello Sheet (' + verifica.length + '):');
     verifica.forEach(p => r.push('• ' + p.tipo + (p.chi ? ' ' + p.chi : '') + ' – ' + (p.oggetto || '') + (p.link ? ' – ' + p.link : '')));
   }
-  try { const an = anomalie_(P); if (an.length) { r.push('Anomalie:'); an.forEach(x => r.push('• ' + x.testo)); } } catch (e) { }
+  try { const an = anomalie_(P); if (an.length) { r.push('Anomalie:'); an.forEach(x => r.push('• ' + x.testo)); } } catch (e) { ignora_('anomalie nel riepilogo', e); }
   const s = quota_();
   if (s) r.push('Spazio Google: ' + s.usato + ' GB su ' + s.limite + ' GB (' + Math.round(s.usato / s.limite * 100) + '%).');
   return { righe: r, settimana, verifica };
@@ -2440,7 +2456,7 @@ function briefing_(P) {
   try {
     const gravi = anomalie_(P).filter(a => a.livello !== 'basso' && !/scaduta da/.test(a.testo));
     if (gravi.length) t += 'Attenzione: ' + minuscola_(gravi[0].testo) + (gravi.length > 1 ? ' E c\'è ' + (gravi.length === 2 ? 'un\'altra cosa' : 'altro') + ': chiedimi "ci sono anomalie?".' : '') + ' ';
-  } catch (e) { }
+  } catch (e) { ignora_('anomalie nel briefing', e); }
   return t.trim();
 }
 
@@ -2526,7 +2542,7 @@ function anomalie_(P) {
     const trigger = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'elaboraTutto');
     if (!trigger) out.push({ livello: 'alto', testo: 'Il controllo automatico della posta non è attivo. In Apps Script lancia setup per riattivarlo.' });
     else if (ultimo && Date.now() - ultimo > 3 * 3600e3) out.push({ livello: 'alto', testo: 'L\'ultimo controllo automatico della posta è di ' + Math.round((Date.now() - ultimo) / 3600e3) + ' ore fa: dovrebbe girare ogni ora.' });
-  } catch (e) { }
+  } catch (e) { ignora_('controllo automatico', e); }
 
   // 8. spazio quasi pieno
   const s = quota_();
@@ -2608,7 +2624,7 @@ function registraAccesso_(funzione, esito) {
     if (sh.getLastRow() === 0) sh.appendRow(['QUANDO', 'FUNZIONE', 'ESITO']);
     sh.appendRow([new Date(), funzione, esito]);
     if (sh.getLastRow() > 1000) sh.deleteRows(2, 200);
-  } catch (e) { }
+  } catch (e) { console.log('ACCESSI non scrivibile: ' + funzione + ' ' + esito + ' (' + e.message + ')'); }
 }
 
 /** Conta i tentativi falliti: al quinto nella stessa ora manda un avviso. */
