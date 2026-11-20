@@ -1559,17 +1559,11 @@ function formattaPratiche_(sh, map) {
  * Nessun servizio esterno, nessun costo, i dati restano nel tuo account Google.
  */
 
-function doGet(e) {
-  // L'app ora vive su GitHub Pages. Da qui l'interfaccia si apre solo con il token nell'indirizzo
-  // (…/exec?k=TOKEN), così chi conosce l'URL del deployment "Chiunque" non vede niente.
-  const k = e && e.parameter && e.parameter.k;
-  if (!verificaToken_(k).ok) {
-    return HtmlService.createHtmlOutput('<p style="font-family:sans-serif;padding:24px">EDITH è privata.</p>').setTitle('EDITH');
-  }
-  return HtmlService.createHtmlOutputFromFile('Index')
-    .setTitle('EDITH')
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
-    .setFaviconUrl('https://www.gstatic.com/images/branding/product/1x/sheets_2020q4_48dp.png');
+function doGet() {
+  // L'app vive su GitHub Pages e parla con lo script solo via doPost, con il token.
+  // Da qui non si serve più nessuna pagina: con google.script.run chiunque avesse il token
+  // potrebbe chiamare tutte le funzioni dello script (anche creaTokenVoce), non solo quelle dell'elenco di doPost.
+  return HtmlService.createHtmlOutput('<p style="font-family:sans-serif;padding:24px">EDITH è privata.</p>').setTitle('EDITH');
 }
 
 /** Prova gli avvisi: manda subito una mail di test e scrive l'esito nel registro. */

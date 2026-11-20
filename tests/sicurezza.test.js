@@ -80,3 +80,10 @@ test("l'URL dello script non mostra mai l'app, neanche con il token giusto", () 
   assert.match(E.doGet({ parameter: { k } }).html, /privata/);
   assert.match(E.doGet({ parameter: {} }).html, /privata/);
 });
+
+test('EDITH.gs (il file unico) è uguale ai moduli di src: rilancia "npm run bundle" se fallisce', () => {
+  const fs = require('fs'), path = require('path');
+  const src = path.join(__dirname, '..', 'apps-script', 'src');
+  const atteso = fs.readdirSync(src).filter(f => f.endsWith('.gs')).sort().map(f => fs.readFileSync(path.join(src, f), 'utf8')).join('\n');
+  assert.ok(fs.readFileSync(path.join(__dirname, '..', 'apps-script', 'EDITH.gs'), 'utf8') === atteso, 'EDITH.gs non è aggiornato');
+});

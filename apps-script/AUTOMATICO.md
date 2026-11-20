@@ -48,6 +48,10 @@ Dopo un paio di minuti compare la spunta verde. In Apps Script, al posto di `EDI
 Se compare una X rossa, apri l'esecuzione e guarda il passo rosso: di solito è un segreto copiato a metà o l'API del punto 1 spenta.
 
 ## Da sapere
+- **Fino a quando non metti i segreti, su GitHub vedi una X rossa** con scritto "Apps Script NON è stato aggiornato". È voluto: la spunta verde vuol dire solo "test passati e EDITH aggiornata davvero".
+- Al primo aggiornamento GitHub sostituisce tutti i file del progetto Apps Script: `EDITH.gs` e `Index` spariscono e compaiono i moduli. Token, ID dello Sheet, automatismi orari e URL Voce restano com'erano, perché sono legati al progetto e non ai file.
+- **Non aggiungere mai i moduli a mano lasciando anche `EDITH.gs`**: ogni funzione esisterebbe due volte e lo script si fermerebbe del tutto.
+- Da qui in poi non modificare il codice nell'editor di Apps Script: al prossimo aggiornamento verrebbe sostituito da quello di GitHub.
 - La chiave CLASPRC_JSON permette a GitHub di aggiornare i tuoi script Apps Script e basta. Puoi revocarla quando vuoi da https://myaccount.google.com/permissions (voce "clasp").
 - Il vecchio deployment "Solo io" non viene più aggiornato: ora basta l'app.
 - Il codice resta leggibile in `apps-script/src`, un file per argomento.

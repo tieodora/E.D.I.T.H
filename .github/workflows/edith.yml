@@ -3,7 +3,7 @@ name: Prova e aggiorna EDITH
 on:
   push:
     branches: [main]
-    paths: ['apps-script/**', 'index.html', 'tests/**', '.github/workflows/edith.yml']
+    paths: ['apps-script/**', 'index.html', 'tests/**', 'scripts/**', '.github/workflows/edith.yml']
   pull_request:
   workflow_dispatch:
 
@@ -41,16 +41,16 @@ jobs:
         with:
           node-version: 22
       - name: Controlla i segreti
-        id: segreti
         run: |
-          if [ -z "$CLASPRC_JSON" ] || [ -z "$SCRIPT_ID" ] || [ -z "$DEPLOYMENT_ID" ]; then
-            echo "::notice::Aggiornamento automatico non ancora attivo: mancano i segreti CLASPRC_JSON, SCRIPT_ID o DEPLOYMENT_ID (vedi apps-script/AUTOMATICO.md)."
-            echo "pronto=no" >> "$GITHUB_OUTPUT"
-          else
-            echo "pronto=si" >> "$GITHUB_OUTPUT"
+          # Senza segreti il codice NON arriva in Apps Script: lo dico con una X rossa,
+          # così la spunta verde vuol dire sempre "EDITH è aggiornata davvero".
+          mancano=""
+          for s in CLASPRC_JSON SCRIPT_ID DEPLOYMENT_ID; do if [ -z "${!s}" ]; then mancano="$mancano $s"; fi; done
+          if [ -n "$mancano" ]; then
+            echo "::error::Test superati, ma Apps Script NON è stato aggiornato: mancano i segreti$mancano. Segui apps-script/AUTOMATICO.md."
+            exit 1
           fi
       - name: Prepara i file
-        if: steps.segreti.outputs.pronto == 'si'
         run: |
           if [ -n "$SHEET_ID" ]; then
             sed -i "s/SHEET_ID: ''/SHEET_ID: '$SHEET_ID'/" apps-script/src/00_Config.gs
@@ -59,11 +59,9 @@ jobs:
           chmod 600 ~/.clasprc.json
           printf '{"scriptId":"%s","rootDir":"src"}' "$SCRIPT_ID" > apps-script/.clasp.json
       - name: Carica il codice su Apps Script
-        if: steps.segreti.outputs.pronto == 'si'
         working-directory: apps-script
         run: npx -y @google/clasp@3.4.1 push -f
       - name: Nuova versione del deployment Voce
-        if: steps.segreti.outputs.pronto == 'si'
         working-directory: apps-script
         run: npx -y @google/clasp@3.4.1 update-deployment "$DEPLOYMENT_ID" -d "GitHub ${GITHUB_SHA::7}"
       - name: Pulizia
