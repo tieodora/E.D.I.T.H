@@ -1,9 +1,9 @@
-// Le skill di conversazione che girano sul telefono (dentro index.html, tra i segnaposto <chiacchiere>).
+// Le skill di conversazione che girano sul telefono (dentro app.js, tra i segnaposto <chiacchiere>).
 const test = require('node:test');
 const assert = require('node:assert');
 const fs = require('fs');
 const path = require('path');
-const src = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
 const carica = () => new Function(src.slice(src.indexOf('// <chiacchiere>'), src.indexOf('// </chiacchiere>')) + '; return CH;')();
 const ora = new Date('2026-11-20T18:15:00');
 

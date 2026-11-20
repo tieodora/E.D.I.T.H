@@ -3,7 +3,7 @@ name: Prova e aggiorna EDITH
 on:
   push:
     branches: [main]
-    paths: ['apps-script/**', 'index.html', 'tests/**', 'scripts/**', '.github/workflows/edith.yml']
+    paths: ['apps-script/**', 'index.html', 'app.js', 'style.css', 'sw.js', 'tests/**', 'scripts/**', '.github/workflows/edith.yml']
   pull_request:
   workflow_dispatch:
 

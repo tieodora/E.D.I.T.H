@@ -5,7 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+const leggi = f => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+const PAGINA = leggi('index.html');
+const HTML = PAGINA + '\n' + leggi('app.js');
 const riga = nome => (HTML.match(new RegExp('^const ' + nome + ' = .*$', 'm')) || [])[0];
 const ctx = {};
 vm.createContext(ctx);
@@ -36,5 +38,12 @@ test('ogni link dai dati passa da href()', () => {
 
 test("l'app non usa più google.script.run e ha la CSP", () => {
   assert.ok(!/google\.script\.run/.test(HTML));
-  assert.match(HTML, /http-equiv="Content-Security-Policy"/);
+  assert.match(PAGINA, /http-equiv="Content-Security-Policy"/);
+});
+
+test("il service worker salva tutti i file che servono all'app per aprirsi offline", () => {
+  const sw = leggi('sw.js');
+  const usati = [...PAGINA.matchAll(/(?:src|href)="([\w.-]+\.(?:js|css|json|png))"/g)].map(m => m[1]);
+  assert.ok(usati.includes('app.js') && usati.includes('style.css'));
+  for (const f of usati) assert.ok(sw.includes("'" + f + "'"), f + ' manca in sw.js');
 });
