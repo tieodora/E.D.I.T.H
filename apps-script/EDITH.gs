@@ -5,7 +5,7 @@
  */
 const CONFIG = {
   // ID dello Sheet EDITH (usato se lo script non è "legato" allo Sheet)
-  SHEET_ID: 'INCOLLA_QUI_ID_DEL_TUO_SHEET',
+  SHEET_ID: '',
 
   TIMEZONE: 'Europe/Rome',
 
@@ -29,6 +29,7 @@ const CONFIG = {
   SHEET_PULIZIA: 'PULIZIA',
   SHEET_PESANTI: 'MAIL PESANTI',
   SHEET_LOG: 'LOG',
+  SHEET_ACCESSI: 'ACCESSI',
 
   // Promemoria
   // 'principale' = eventi nel tuo calendario di sempre (consigliato); 'dedicato' = calendario separato EDITH Scadenze
@@ -79,14 +80,25 @@ const COLONNE = {
     'LINK MAIL', 'NOTE OCR', 'ID MAIL', 'EVENT ID', 'TASK ID',
   ],
 };
+
 /** Funzioni di supporto comuni. */
 
+/** ID dello Sheet: prima le Proprietà dello script, poi CONFIG (e lo salva), così il codice su GitHub può restare senza ID. */
+function idSheet_() {
+  const props = PropertiesService.getScriptProperties();
+  let id = props.getProperty('SHEET_ID');
+  if (!id && CONFIG.SHEET_ID && !/INCOLLA/.test(CONFIG.SHEET_ID)) { id = CONFIG.SHEET_ID; props.setProperty('SHEET_ID', id); }
+  if (!id) throw new Error('Manca l\'ID dello Sheet: in Impostazioni progetto › Proprietà script aggiungi SHEET_ID');
+  return id;
+}
+
 function ss_() {
+  const id = idSheet_();
   try {
     const active = SpreadsheetApp.getActiveSpreadsheet();
-    if (active && active.getId() === CONFIG.SHEET_ID) return active;
+    if (active && active.getId() === id) return active;
   } catch (e) { /* script non legato allo sheet */ }
-  return SpreadsheetApp.openById(CONFIG.SHEET_ID);
+  return SpreadsheetApp.openById(id);
 }
 
 function sheet_(name) {
@@ -228,6 +240,7 @@ function toast_(messaggio) {
 function tempoScaduto_(start) {
   return Date.now() - start > CONFIG.TEMPO_MAX_MS;
 }
+
 /**
  * OCR dei PDF allegati ed estrazione dei dati (tipo, date, importo).
  * L'OCR usa Google Drive: il PDF viene convertito temporaneamente in Google Doc
@@ -411,6 +424,7 @@ function estraiDati_(text, tipoPratica, mittente, oggetto) {
     confidenza: trovati,
   };
 }
+
 /**
  * Elaborazione delle mail con etichetta "bollettazione" e "assicurazioni".
  * Per ogni mail nuova: OCR dei PDF -> riga nello Sheet -> evento Calendar + attività Tasks.
@@ -646,6 +660,7 @@ function unisciDuplicato_(sh, map, d, tipoPratica, msg) {
   log_('Duplicato unito', msg.getSubject() + ' -> riga ' + dup._row);
   return true;
 }
+
 /**
  * Promemoria di pagamento.
  *
@@ -890,6 +905,7 @@ function pulisciPromemoriaOrfani_() {
   }
   return 'Pulizia: eliminati ' + nTask + ' vecchie attività e ' + nEv + ' vecchi eventi EDITH.';
 }
+
 /**
  * Andamento costi.
  *  - Lo storico resta sempre nei fogli BOLLETTAZIONE e ASSICURAZIONE (tutti gli anni dal 2026).
@@ -1019,6 +1035,7 @@ function scriviTabella_(sh, r, c, dati) {
 
 function uniq_(arr) { return [...new Set(arr)].sort(); }
 function round2_(n) { return Math.round(n * 100) / 100; }
+
 /**
  * Iscrizioni / newsletter.
  * 1) "Analizza iscrizioni": legge le mail recenti con intestazione List-Unsubscribe
@@ -1198,6 +1215,7 @@ function labelId_(nome) {
   const l = (Gmail.Users.Labels.list('me').labels || []).find(x => x.name === nome);
   return l.id;
 }
+
 /**
  * Ottimizzazione dello spazio.
  *  - "Report mail pesanti": elenca le mail più grandi (foglio MAIL PESANTI) con spunta per cestinarle.
@@ -1355,6 +1373,7 @@ function aggiornaQuotaSpazio_() {
     sh.getRange('J1:J4').setFontWeight('bold');
   } catch (e) { /* non bloccante */ }
 }
+
 /**
  * Installazione, menu e trigger automatici.
  * Prima volta: esegui "setup" dall'editor (o dal menu EDITH > Installa), autorizza, fatto.
@@ -1448,6 +1467,7 @@ function formattaPratiche_(sh, map) {
   // Colonne tecniche nascoste (servono allo script)
   ['ID MAIL', 'EVENT ID', 'TASK ID'].forEach(c => { if (map[c] !== undefined) sh.hideColumns(map[c] + 1); });
 }
+
 /**
  * EDITH – App web (da aprire dal telefono) + assistente "Edith, sono io".
  *
@@ -1465,9 +1485,8 @@ function formattaPratiche_(sh, map) {
 function doGet(e) {
   // L'app ora vive su GitHub Pages. Da qui l'interfaccia si apre solo con il token nell'indirizzo
   // (…/exec?k=TOKEN), così chi conosce l'URL del deployment "Chiunque" non vede niente.
-  const token = PropertiesService.getScriptProperties().getProperty('EDITH_TOKEN');
   const k = e && e.parameter && e.parameter.k;
-  if (!token || !uguali_(k, token)) {
+  if (!verificaToken_(k).ok) {
     return HtmlService.createHtmlOutput('<p style="font-family:sans-serif;padding:24px">EDITH è privata.</p>').setTitle('EDITH');
   }
   return HtmlService.createHtmlOutputFromFile('Index')
@@ -1485,16 +1504,6 @@ function provaMail() {
 
 // ---------------------------------------------------------------- EDITH Voce (API JSON)
 
-/** Lancia una volta: crea il token segreto per la pagina vocale e lo scrive nel registro. */
-function creaTokenVoce() {
-  const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
-  PropertiesService.getScriptProperties().setProperty('EDITH_TOKEN', token);
-  Logger.log('Token creato. Copialo: ' + token);
-  Logger.log('Lo incollerai nella pagina EDITH Voce insieme all\'URL del deployment "Chiunque" (finisce con /exec).');
-  Logger.log('Per bloccare un telefono perso: rilancia creaTokenVoce e il vecchio token smette di funzionare.');
-  return token;
-}
-
 function uguali_(a, b) {
   a = String(a || ''); b = String(b || '');
   let diff = a.length ^ b.length;
@@ -1510,10 +1519,11 @@ function json_(obj) {
 function doPost(e) {
   let req = {};
   try { req = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return json_({ ok: false, errore: 'Richiesta non valida' }); }
-  const token = PropertiesService.getScriptProperties().getProperty('EDITH_TOKEN');
-  if (!token || !uguali_(req.k, token)) {
+  const v = verificaToken_(req.k);
+  if (!v.ok) {
+    tentativoFallito_(v.motivo);
     Utilities.sleep(1500);
-    return json_({ ok: false, errore: 'Token non valido' });
+    return json_({ ok: false, errore: v.motivo === 'token scaduto' ? 'Token scaduto: rilancia creaTokenVoce in Apps Script e reinseriscilo' : 'Token non valido' });
   }
   // Le funzioni dell'app. Quelle che cancellano mail chiedono conferma nell'app e mandano tutto nel Cestino.
   const consentite = {
@@ -1524,8 +1534,9 @@ function doPost(e) {
   };
   const f = consentite[req.f];
   if (!f) return json_({ ok: false, errore: 'Funzione non consentita' });
+  if (req.f !== 'apiDati' && req.f !== 'dati') registraAccesso_(req.f, 'ok');   // apiDati si apre a ogni avvio: non riempio il registro
   try {
-    return json_({ ok: true, r: f.apply(null, Array.isArray(req.a) ? req.a.slice(0, 4) : []) });
+    return json_(Object.assign({ ok: true, r: f.apply(null, Array.isArray(req.a) ? req.a.slice(0, 4) : []) }, v.nuovo ? { k: v.nuovo } : {}));
   } catch (err) {
     log_('Errore EDITH Voce', req.f + ' -> ' + err.message);
     return json_({ ok: false, errore: err.message });
@@ -2120,6 +2131,7 @@ function rispostaLocale_(q, P) {
   }
   return null;
 }
+
 /**
  * EDITH – riepilogo settimanale, avvisi via mail e briefing del mattino.
  * Dopo aver incollato il codice lancia una volta installaNovita (oppure setup).
@@ -2313,3 +2325,84 @@ function testoAnomalie_(P) {
 }
 
 function minuscola_(s) { return /^[A-Z](?![A-Z])/.test(s) && !/^(AXA|Sara|SOMET|Piemonte)/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+
+/**
+ * EDITH – sicurezza dell'app sul telefono.
+ * - Il token dura 90 giorni. Dopo 30 giorni di uso l'app ne riceve uno nuovo da sola, senza che tu faccia niente;
+ *   il vecchio resta valido ancora 7 giorni, così un secondo telefono non resta bloccato all'improvviso.
+ * - Se non apri l'app per più di 90 giorni il token scade: rilancia creaTokenVoce e reinseriscilo.
+ * - Ogni accesso finisce nel foglio ACCESSI. Se qualcuno sbaglia il token 5 volte in un'ora ti arriva una mail.
+ */
+
+const TOKEN_DURATA_GG = 90, TOKEN_RINNOVO_GG = 30, TOKEN_GRAZIA_GG = 7;
+
+function nuovoToken_() { return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '').slice(0, 8); }
+
+/** Lancia una volta (o per bloccare un telefono perso): crea un token nuovo e annulla tutti i precedenti. */
+function creaTokenVoce() {
+  const props = PropertiesService.getScriptProperties();
+  const token = nuovoToken_();
+  props.setProperties({ EDITH_TOKEN: token, EDITH_TOKEN_DATA: String(Date.now()) });
+  props.deleteProperty('EDITH_TOKEN_VECCHIO'); props.deleteProperty('EDITH_TOKEN_VECCHIO_FINO');
+  registraAccesso_('creaTokenVoce', 'nuovo token creato, i precedenti non valgono più');
+  Logger.log('Token creato. Copialo: ' + token);
+  Logger.log('Incollalo nell\'app (ingranaggio › Collegamento) insieme all\'URL del deployment Voce.');
+  Logger.log('Dura 90 giorni e si rinnova da solo ogni 30 giorni mentre usi l\'app.');
+  return token;
+}
+
+/**
+ * Controlla il token. Risponde { ok, nuovo?, motivo? }.
+ * "nuovo" è il token che l'app deve salvare al posto di quello vecchio.
+ */
+function verificaToken_(k) {
+  const props = PropertiesService.getScriptProperties();
+  const p = props.getProperties();
+  const ora = Date.now(), gg = 864e5;
+  if (!p.EDITH_TOKEN || !k) return { ok: false, motivo: 'token mancante' };
+  if (uguali_(k, p.EDITH_TOKEN)) {
+    let data = Number(p.EDITH_TOKEN_DATA || 0);
+    if (!data) { data = ora; props.setProperty('EDITH_TOKEN_DATA', String(ora)); }   // token creato prima di questa versione
+    if (ora - data > TOKEN_DURATA_GG * gg) return { ok: false, motivo: 'token scaduto' };
+    if (ora - data > TOKEN_RINNOVO_GG * gg) {
+      const lock = LockService.getScriptLock();
+      if (lock.tryLock(3000)) {
+        try {
+          const fresco = props.getProperty('EDITH_TOKEN');
+          if (fresco !== p.EDITH_TOKEN) return { ok: true, nuovo: fresco };   // l'ha già rinnovato un'altra richiesta
+          const nuovo = nuovoToken_();
+          props.setProperties({ EDITH_TOKEN: nuovo, EDITH_TOKEN_DATA: String(ora), EDITH_TOKEN_VECCHIO: p.EDITH_TOKEN, EDITH_TOKEN_VECCHIO_FINO: String(ora + TOKEN_GRAZIA_GG * gg) });
+          registraAccesso_('rinnovo', 'token rinnovato automaticamente');
+          return { ok: true, nuovo };
+        } finally { lock.releaseLock(); }
+      }
+    }
+    return { ok: true };
+  }
+  if (p.EDITH_TOKEN_VECCHIO && uguali_(k, p.EDITH_TOKEN_VECCHIO) && ora < Number(p.EDITH_TOKEN_VECCHIO_FINO || 0)) return { ok: true, nuovo: p.EDITH_TOKEN };
+  return { ok: false, motivo: 'token errato' };
+}
+
+/** Registro accessi nel foglio ACCESSI (tiene le ultime 1000 righe). */
+function registraAccesso_(funzione, esito) {
+  try {
+    const sh = sheet_(CONFIG.SHEET_ACCESSI);
+    if (sh.getLastRow() === 0) sh.appendRow(['QUANDO', 'FUNZIONE', 'ESITO']);
+    sh.appendRow([new Date(), funzione, esito]);
+    if (sh.getLastRow() > 1000) sh.deleteRows(2, 200);
+  } catch (e) { }
+}
+
+/** Conta i tentativi falliti: al quinto nella stessa ora manda un avviso. */
+function tentativoFallito_(motivo) {
+  registraAccesso_('accesso', 'RIFIUTATO: ' + motivo);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const ora = Utilities.formatDate(new Date(), CONFIG.TIMEZONE, 'yyyyMMddHH');
+    const [h, n] = String(props.getProperty('FALLITI') || '').split(':');
+    const conta = h === ora ? Number(n || 0) + 1 : 1;
+    props.setProperty('FALLITI', ora + ':' + conta);
+    if (conta === 5) notifica_('Tentativi di accesso falliti', ['Nell\'ultima ora qualcuno ha provato 5 volte ad aprire EDITH con un token sbagliato (' + motivo + ').',
+      'Se non eri tu, lancia creaTokenVoce in Apps Script: il token cambia e chi ce l\'ha resta fuori. Il registro è nel foglio ACCESSI.'], 'falliti_' + ora);
+  } catch (e) { }
+}

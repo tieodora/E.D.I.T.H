@@ -120,6 +120,7 @@ a{color:var(--accent)}
 .b{max-width:86%;padding:9px 13px;border-radius:16px;margin:6px 0;white-space:pre-wrap;word-wrap:break-word}
 .b.me{margin-left:auto;background:#0f2a35;color:var(--ink);border:1px solid rgba(37,217,255,.25);border-bottom-right-radius:4px}
 .b.ed{background:var(--card);border:1px solid var(--line);border-bottom-left-radius:4px}
+.b.ia::after{content:'IA locale';display:block;margin-top:6px;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
 .b.piano{opacity:.5}
 .ask{display:flex;gap:8px;padding-top:8px;flex:none}
 .ask input{flex:1;font:inherit;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:var(--card);color:var(--ink);min-width:0}
@@ -167,6 +168,10 @@ a{color:var(--accent)}
   <label for="cfgVoce">Voce di Edith</label>
   <select id="cfgVoce" onchange="mem('voce_nome', this.value)"></select>
   <p class="muted" style="margin:0;font-size:13px">Le voci migliori sono "Google" o "Premium". Se senti solo voci robotiche, scarica una voce italiana dalle impostazioni del telefono (vedi la guida).</p>
+  <h3>IA sul telefono <span class="muted" style="font-weight:400">· sperimentale</span></h3>
+  <label class="sw">Usa l'IA locale quando non capisco<input type="checkbox" id="cfgIA" onchange="cambiaIA(this.checked)"></label>
+  <p class="muted" style="margin:0;font-size:13px">Gratis e privata: un piccolo modello (circa 1 GB, scaricalo col Wi-Fi) gira direttamente sul telefono e i tuoi dati non escono da qui. Serve Chrome aggiornato. Le risposte su importi e scadenze restano quelle precise di sempre; l'IA interviene solo sulle domande che le regole non capiscono.</p>
+  <div id="iaStato" class="muted" style="font-size:13px"></div>
   <div class="actions"><button class="ghost" style="flex:1" onclick="sbloccaVoce();parla('Ciao Teo, sono Edith. Questa è la mia voce.')">Prova la voce</button>
   <button style="flex:1" id="cfgChiudi" onclick="mostraSetup(false)">Chiudi</button></div>
   <p class="muted" style="font-size:12px;margin:16px 0 0;text-align:center">Versione app: <b id="ver"></b></p>
@@ -251,7 +256,8 @@ async function remoto(fn, args){
   catch (e) { throw new Error(navigator.onLine ? 'lo script non risponde: controlla URL, accesso "Chiunque" e versione del deployment' : 'sei offline'); }
   let j; try { j = JSON.parse(await res.text()); }
   catch (e) { throw new Error('il deployment non è accessibile a tutti: impostalo su "Chiunque"'); }
-  if (!j.ok) { if (/token/i.test(j.errore || '')) mostraSetup(true, 'Il token non è valido.'); throw new Error(j.errore || 'errore'); }
+  if (!j.ok) { if (/token/i.test(j.errore || '')) mostraSetup(true, /scaduto/i.test(j.errore) ? 'Il token è scaduto: rilancia creaTokenVoce e incolla quello nuovo.' : 'Il token non è valido.'); throw new Error(j.errore || 'errore'); }
+  if (j.k && j.k !== mem('k')) mem('k', j.k);   // token rinnovato in automatico
   return j.r;
 }
 function call(fn, ...args){
@@ -263,7 +269,7 @@ function mostraSetup(si, err){
   $('cfgU').value = mem('url') || ''; $('cfgK').value = mem('k') || ''; $('cfgErr').textContent = err || '';
   $('cfgConn').style.display = GAS ? 'none' : 'flex';
   $('cfgChiudi').style.display = GAS || (mem('url') && mem('k')) ? '' : 'none';
-  if (si) { riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; }
+  if (si) { riempiVoci(); $('cfgParla').checked = S.voce; $('cfgAscolta').checked = mem('ascolto') !== '0'; $('cfgIA').checked = mem('ia') === '1'; if (!IA.motore && !IA.caricamento && mem('ia') !== '1') iaStato(navigator.gpu ? '' : 'Su questo browser non è disponibile (manca WebGPU).'); }
 }
 async function salvaSetup(){
   const u = $('cfgU').value.trim(), k = $('cfgK').value.trim();
@@ -454,7 +460,7 @@ function renderAnomalie(d){
 
 // ------------------------------------------------ EDITH: apri l'app e parla
 // Ascolta finché l'app è aperta e in primo piano. Quando la chiudi o cambi app, smette.
-const VERSIONE = '20 nov, 16:00';
+const VERSIONE = '20 nov, 19:00';
 const V = { voluto: false, rec: null, parlando: false, pensando: false, pausa: false, voceBloccata: false, daDire: null, ultimoRisultato: 0 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -556,14 +562,20 @@ async function chiedi(q, aVoce){
   V.pensando = false;
   // a voce, una frase corta che non capisco è quasi sempre rumore (radio, altre persone): la ignoro
   if (aVoce && r.capito === false && norm(q).split(' ').length < 4) { io.classList.add('piano'); setTimeout(() => io.remove(), 2500); return riprendi(); }
+  if (r.capito === false && IA.motore) {
+    V.pensando = true; aggiornaStato();
+    const t = await chiediIA(q).catch(() => null);
+    V.pensando = false;
+    if (t) { S.storia.push({ ruolo: 'io', testo: q }); return rispondi(t, false, '', 'ia'); }
+  }
   S.storia.push({ ruolo: 'io', testo: q });
   const bb = rispondi(r.testo, !!r.fine, r.seguito);
   if (r.azione && r.azione.tipo === 'pagata') chiediConferma(bb, r.azione);
   if (r.aggiorna) call('apiDati').then(render).catch(() => {});
 }
 
-function rispondi(testo, fine, seguito){
-  const b = bolla('ed', testo);
+function rispondi(testo, fine, seguito, extra){
+  const b = bolla('ed', testo, extra);
   S.storia.push({ ruolo: 'edith', testo: testo, seguito: seguito || '' });
   if (fine) V.pausa = true;
   parla(testo, riprendi);
@@ -648,6 +660,60 @@ function parla(testo, poi){
   } catch(e) { V.parlando = false; if (poi) poi(); }
 }
 
+// ------------------------------------------------ IA locale (WebLLM, gira sul telefono, gratis)
+// Usata solo quando le regole rispondono "non ho capito". I dati restano sul telefono.
+const IA = { motore: null, caricamento: null };
+const IA_LIB = 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.86/+esm';
+function iaStato(t){ const el = $('iaStato'); if (el) el.textContent = t || ''; }
+function cambiaIA(si){
+  mem('ia', si ? '1' : '0');
+  if (si) caricaIA().catch(() => {});
+  else { if (IA.motore) IA.motore.unload().catch(() => {}); IA.motore = null; IA.caricamento = null; iaStato('Spenta. Il modello resta salvato sul telefono: riaccenderla è veloce.'); }
+}
+async function caricaIA(){
+  if (IA.motore) return IA.motore;
+  if (IA.caricamento) return IA.caricamento;
+  IA.caricamento = (async () => {
+    if (!navigator.gpu) throw new Error('questo browser non supporta WebGPU: aggiorna Chrome');
+    const scheda = await navigator.gpu.requestAdapter();
+    if (!scheda) throw new Error('il telefono non mette a disposizione la grafica (WebGPU)');
+    const f16 = scheda.features && scheda.features.has('shader-f16');
+    const modello = 'Qwen2.5-1.5B-Instruct-' + (f16 ? 'q4f16_1' : 'q4f32_1') + '-MLC';
+    iaStato('Preparo l\'IA…');
+    const webllm = await import(IA_LIB);
+    const m = await webllm.CreateMLCEngine(modello, { initProgressCallback: p => {
+      const pc = Math.round((p.progress || 0) * 100);
+      iaStato(/cache|caricamento|loading from cache/i.test(p.text || '') ? 'Carico l\'IA dalla memoria del telefono… ' + pc + '%' : 'Scarico l\'IA (una volta sola, circa 1 GB)… ' + pc + '%');
+    } });
+    IA.motore = m; iaStato('Pronta: risponde direttamente dal telefono.');
+    return m;
+  })();
+  try { return await IA.caricamento; }
+  catch(e) { IA.caricamento = null; iaStato('Non riesco ad attivarla: ' + (e && e.message || e)); throw e; }
+}
+function contestoIA(){
+  const d = S.dati || {};
+  const eur = n => n == null ? '?' : '€ ' + Number(n).toFixed(2).replace('.', ',');
+  const righe = (d.pratiche || []).slice(0, 30).map(p => '- ' + [p.area === 'assicurazioni' ? 'assicurazione' : 'bolletta', p.tipo, p.chi, p.emissione && 'emessa ' + p.emissione, p.scadenza && 'scade ' + p.scadenza, eur(p.importo), p.stato].filter(Boolean).join(', '));
+  const k = d.kpi || {};
+  return 'Oggi è ' + (d.oggi || new Date().toISOString().slice(0, 10)) + '.\n' +
+    'Totali ' + (d.anno || '') + ': bollette ' + eur(k.bollette) + ' (media mensile ' + eur(k.media) + '), assicurazioni ' + eur(k.assicurazioni) + ', pagamenti aperti ' + (k.aperte || 0) + ' per ' + eur(k.apertiTot) + '.\n' +
+    'Anomalie: ' + ((d.anomalie || []).map(a => a.testo).join(' | ') || 'nessuna') + '.\n' +
+    'Pratiche (le più recenti):\n' + (righe.join('\n') || '- nessuna');
+}
+async function chiediIA(q){
+  const m = IA.motore; if (!m) return null;
+  const sistema = 'Sei EDITH, l\'assistente personale di Teo (donna: usa il femminile quando ti rivolgi a lei). ' +
+    'Rispondi in italiano, in modo caldo e naturale, al massimo 3 frasi brevi, senza elenchi né markdown, perché la risposta viene letta ad alta voce. ' +
+    'Per bollette, assicurazioni e scadenze usa SOLO i dati qui sotto: se un dato non c\'è, dillo, non inventare mai importi o date. ' +
+    'Non puoi pagare, cancellare mail né fare azioni: se te lo chiede, spiega che può farlo dall\'app. ' +
+    'Per domande generali rispondi pure con quello che sai, ammettendo i dubbi.\n\nDATI DI TEO\n' + contestoIA();
+  const storia = S.storia.slice(-6).map(x => ({ role: x.ruolo === 'io' ? 'user' : 'assistant', content: x.testo }));
+  const r = await m.chat.completions.create({ messages: [{ role: 'system', content: sistema }, ...storia, { role: 'user', content: q }], temperature: 0.4, max_tokens: 180 });
+  const t = (r.choices[0].message.content || '').replace(/[*#_`]/g, '').trim();
+  return t || null;
+}
+
 // ------------------------------------------------ avvio
 S.attesa = null;
 (function avvio(){
@@ -665,6 +731,7 @@ S.attesa = null;
     }
     if (!mem('url') || !mem('k')) { mostraSetup(true); aggiornaStato(); return; }
   }
+  if (mem('ia') === '1') caricaIA().catch(() => {});
   const v = store('edith_view'); if (v) vai(v);
   call('apiDati').then(d => { render(d); }).catch(() => {
     if (S.dati) $('sub').textContent = (navigator.onLine ? 'non raggiungibile' : 'offline') + ' · ' + $('sub').textContent.replace(/, aggiorno…$/, '');
